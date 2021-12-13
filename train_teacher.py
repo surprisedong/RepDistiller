@@ -49,19 +49,26 @@ def parse_option():
 
     parser.add_argument('-t', '--trial', type=int, default=0, help='the experiment id')
 
+    parser.add_argument('--resume', default='', type=str, metavar='PATH',
+                    help='path to latest checkpoint (default: none)')
+
+    parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
+                    help='evaluate model on validation set')
+
+    parser.add_argument('--gpu', default=0, type=int,
+                    help='GPU id to use.')
+
+    parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
+                    help='path to save results')
+
     opt = parser.parse_args()
     
     # set different learning rate from these 4 models
     if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
         opt.learning_rate = 0.01
 
-    # set the path according to the environment
-    if hostname.startswith('visiongpu'):
-        opt.model_path = '/path/to/my/model'
-        opt.tb_path = '/path/to/my/tensorboard'
-    else:
-        opt.model_path = './save/models'
-        opt.tb_path = './save/tensorboard'
+    opt.model_path = os.path.join(opt.output_dir,'models')
+    opt.tb_path = os.path.join(opt.output_dir,'tensorboard')
 
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
@@ -106,9 +113,32 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     if torch.cuda.is_available():
-        model = model.cuda()
-        criterion = criterion.cuda()
+        torch.cuda.set_device(opt.gpu)
+        model = model.cuda(opt.gpu)
+        criterion = criterion.cuda(opt.gpu)
         cudnn.benchmark = True
+    else:
+        print('using CPU, this will be slow')
+
+    # optionally resume from a checkpoint
+    if opt.resume:
+        if os.path.isfile(opt.resume):
+            print("=> loading checkpoint '{}'".format(opt.resume))
+            loc = 'cuda:{}'.format(opt.gpu)
+            checkpoint = torch.load(opt.resume, map_location=loc)
+            opt.start_epoch = checkpoint['epoch']
+            best_acc = checkpoint['accuracy'] if hasattr(checkpoint,'accuracy') else 0
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(opt.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(opt.resume))
+    
+    ## only evaluate
+    if opt.evaluate:
+        validate(val_loader, model, criterion, opt)
+        return
 
     # tensorboard
     logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
@@ -139,7 +169,7 @@ def main():
             state = {
                 'epoch': epoch,
                 'model': model.state_dict(),
-                'best_acc': best_acc,
+                'accuracy': best_acc,
                 'optimizer': optimizer.state_dict(),
             }
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model))
