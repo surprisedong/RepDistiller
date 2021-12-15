@@ -21,8 +21,6 @@ from helper.loops import train_vanilla as train, validate
 
 def parse_option():
 
-    hostname = socket.gethostname()
-
     parser = argparse.ArgumentParser('argument for training')
 
     parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
@@ -41,7 +39,7 @@ def parse_option():
 
     # dataset
     parser.add_argument('--model', type=str, default='resnet110',
-                        choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
+                        choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'ResNet50', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2', ])
@@ -54,9 +52,6 @@ def parse_option():
 
     parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-
-    parser.add_argument('--gpu', default=0, type=int,
-                    help='GPU id to use.')
 
     parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
                     help='path to save results')
@@ -113,9 +108,8 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     if torch.cuda.is_available():
-        torch.cuda.set_device(opt.gpu)
-        model = model.cuda(opt.gpu)
-        criterion = criterion.cuda(opt.gpu)
+        model = model.cuda()
+        criterion = criterion.cuda()
         cudnn.benchmark = True
     else:
         print('using CPU, this will be slow')
@@ -124,8 +118,7 @@ def main():
     if opt.resume:
         if os.path.isfile(opt.resume):
             print("=> loading checkpoint '{}'".format(opt.resume))
-            loc = 'cuda:{}'.format(opt.gpu)
-            checkpoint = torch.load(opt.resume, map_location=loc)
+            checkpoint = torch.load(opt.resume)
             opt.start_epoch = checkpoint['epoch']
             best_acc = checkpoint['accuracy'] if hasattr(checkpoint,'accuracy') else 0
             model.load_state_dict(checkpoint['model'])
@@ -134,6 +127,7 @@ def main():
                   .format(opt.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
+            exit(1)
     
     ## only evaluate
     if opt.evaluate:

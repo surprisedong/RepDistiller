@@ -34,8 +34,6 @@ from helper.pretrain import init
 
 def parse_option():
 
-    hostname = socket.gethostname()
-
     parser = argparse.ArgumentParser('argument for training')
 
     parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
@@ -86,20 +84,17 @@ def parse_option():
 
     # hint layer
     parser.add_argument('--hint_layer', default=2, type=int, choices=[0, 1, 2, 3, 4])
-
+    
+    parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
+                    help='path to save results')
     opt = parser.parse_args()
 
     # set different learning rate from these 4 models
     if opt.model_s in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
         opt.learning_rate = 0.01
 
-    # set the path according to the environment
-    if hostname.startswith('visiongpu'):
-        opt.model_path = '/path/to/my/student_model'
-        opt.tb_path = '/path/to/my/student_tensorboards'
-    else:
-        opt.model_path = './save/student_model'
-        opt.tb_path = './save/student_tensorboards'
+    opt.model_path = os.path.join(opt.output_dir,'models')
+    opt.tb_path = os.path.join(opt.output_dir,'tensorboard')
 
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
