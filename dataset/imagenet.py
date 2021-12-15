@@ -183,12 +183,12 @@ def get_dataloader_sample(dataset='imagenet', batch_size=128, num_workers=8, is_
     return train_loader, test_loader, len(train_set), len(train_set.classes)
 
 
-def get_imagenet_dataloader(dataset='imagenet', batch_size=128, num_workers=16, is_instance=False):
+def get_imagenet_dataloader(dataset='imagenet', datapath= 'data/imagenet', batch_size=256, num_workers=16, is_instance=False):
     """
     Data Loader for imagenet
     """
     if dataset == 'imagenet':
-        data_folder = get_data_folder()
+        data_folder = datapath
     else:
         raise NotImplementedError('dataset not supported: {}'.format(dataset))
 
