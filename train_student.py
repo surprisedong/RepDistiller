@@ -25,7 +25,7 @@ from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_
 from helper.util import adjust_learning_rate
 
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
-from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss
+from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss, PCALoss
 from crd.criterion import CRDLoss
 
 from helper.loops import train_distill as train, validate
@@ -58,14 +58,14 @@ def parse_option():
     parser.add_argument('--model_s', type=str, default='resnet8',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
-                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50',
+                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50','ResNet50PCA','ResNet34PCA',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2'])
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
 
     # distillation
     parser.add_argument('--distill', type=str, default='kd', choices=['kd', 'hint', 'attention', 'similarity',
                                                                       'correlation', 'vid', 'crd', 'kdsvd', 'fsp',
-                                                                      'rkd', 'pkt', 'abound', 'factor', 'nst'])
+                                                                      'rkd', 'pkt', 'abound', 'factor', 'nst', 'PCA'])
     parser.add_argument('--trial', type=str, default='1', help='trial id')
 
     parser.add_argument('-r', '--gamma', type=float, default=1, help='weight for classification')
@@ -84,7 +84,11 @@ def parse_option():
 
     # hint layer
     parser.add_argument('--hint_layer', default=2, type=int, choices=[0, 1, 2, 3, 4])
-    
+
+    parser.add_argument('--truncate', dest='truncate', action='store_true',
+                    help='truncate eigenvar in PCA mode')
+    parser.add_argument('--eigenVar', default=0.95, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
+    parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
     parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
                     help='path to save results')
     opt = parser.parse_args()
@@ -100,6 +104,11 @@ def parse_option():
     opt.lr_decay_epochs = list([])
     for it in iterations:
         opt.lr_decay_epochs.append(int(it))
+    
+    iterations = opt.pcalayer.split(',')
+    opt.pcalayer = list([])
+    for it in iterations:
+        opt.pcalayer.append(int(it))
 
     opt.model_t = get_teacher_name(opt.path_t)
 
@@ -113,6 +122,12 @@ def parse_option():
     opt.save_folder = os.path.join(opt.model_path, opt.model_name)
     if not os.path.isdir(opt.save_folder):
         os.makedirs(opt.save_folder)
+
+    cfg_path = os.path.join(opt.save_folder,'argument.txt')
+    with open(cfg_path, 'w') as f:
+        for key, value in vars(opt).items():
+            f.write('%s:%s\n'%(key, value))
+            print(key, value)
 
     return opt
 
@@ -160,7 +175,27 @@ def main():
 
     # model
     model_t = load_teacher(opt.path_t, n_cls)
-    model_s = model_dict[opt.model_s](num_classes=n_cls)
+    if opt.distill == 'PCA':
+        print("model_s & model_t have same structure but less channels in PCA mode, building model_s......")
+        criterion_kd = nn.ModuleList([])
+        channel_list = []
+        data = torch.rand(opt.batch_size, 3, 32, 32)
+        if torch.cuda.is_available():
+            data = data.cuda()
+            model_t.cuda()
+
+        model_t.eval()
+        feat_t, _ = model_t(data, is_feat=True,preact=True)
+        for feat in feat_t[:-1]:
+            criterion = PCALoss(eigenVar=opt.eigenVar,truncate=opt.truncate)
+            featProj = criterion.projection(feat)
+            channeltruncate = featProj.shape[1]
+            channel_list.append(channeltruncate)
+            criterion_kd.append(criterion)
+        model_t.cpu()
+        model_s = model_dict[opt.model_t+'PCA'](num_channels=channel_list, num_classes=n_cls)    
+    else:
+        model_s = model_dict[opt.model_s](num_classes=n_cls)
 
     data = torch.randn(2, 3, 32, 32)
     model_t.eval()
@@ -256,6 +291,8 @@ def main():
         init(model_s, model_t, init_trainable_list, criterion_kd, train_loader, logger, opt)
         # classification training
         pass
+    elif opt.distill == 'PCA':
+        pass
     else:
         raise NotImplementedError(opt.distill)
 
@@ -289,12 +326,15 @@ def main():
         print("==> training...")
 
         time1 = time.time()
-        train_acc, train_loss = train(epoch, train_loader, module_list, criterion_list, optimizer, opt)
+        train_acc, train_loss,cls_loss,div_loss,kd_loss = train(epoch, train_loader, module_list, criterion_list, optimizer, opt)
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 
         logger.log_value('train_acc', train_acc, epoch)
         logger.log_value('train_loss', train_loss, epoch)
+        logger.log_value('cls_loss', cls_loss, epoch)
+        logger.log_value('div_loss', div_loss, epoch)
+        logger.log_value('kd_loss', kd_loss, epoch)
 
         test_acc, tect_acc_top5, test_loss = validate(val_loader, model_s, criterion_cls, opt)
 

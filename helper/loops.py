@@ -3,9 +3,9 @@ from __future__ import print_function, division
 import sys
 import time
 import torch
-
+import pdb
 from .util import AverageMeter, accuracy
-
+import math
 
 def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
     """vanilla training"""
@@ -90,6 +90,9 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
+    losses_cls = AverageMeter()
+    losses_div = AverageMeter()
+    losses_kd = AverageMeter()
 
     end = time.time()
     for idx, data in enumerate(train_loader):
@@ -109,7 +112,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
 
         # ===================forward=====================
         preact = False
-        if opt.distill in ['abound']:
+        if opt.distill in ['abound','PCA']:
             preact = True
         feat_s, logit_s = model_s(input, is_feat=True, preact=preact)
         with torch.no_grad():
@@ -178,6 +181,13 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
             factor_s = module_list[1](feat_s[-2])
             factor_t = module_list[2](feat_t[-2], is_factor=True)
             loss_kd = criterion_kd(factor_s, factor_t)
+        elif opt.distill == 'PCA':
+            g_s = [feat_s[idx] for idx in opt.pcalayer]
+            g_t = [feat_t[idx] for idx in opt.pcalayer]
+            criterion_kd = [criterion_kd[idx].eval() for idx in opt.pcalayer]
+            loss_group = [c(f_s, f_t) for f_s, f_t, c in zip(g_s, g_t, criterion_kd)]
+            loss_kd = sum(loss_group)
+
         else:
             raise NotImplementedError(opt.distill)
 
@@ -185,12 +195,15 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
 
         acc1, acc5 = accuracy(logit_s, target, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
+        losses_cls.update(loss_cls.item(), input.size(0))
+        losses_div.update(loss_div.item(), input.size(0))
+        losses_kd.update(loss_kd.item(), input.size(0))
         top1.update(acc1[0], input.size(0))
         top5.update(acc5[0], input.size(0))
 
         # ===================backward=====================
         optimizer.zero_grad()
-        loss.backward()
+        loss.backward(retain_graph=True)
         optimizer.step()
 
         # ===================meters=====================
@@ -212,7 +225,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
     print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
           .format(top1=top1, top5=top5))
 
-    return top1.avg, losses.avg
+    return top1.avg, losses.avg, losses_cls.avg, losses_div.avg, losses_kd.avg
 
 
 def validate(val_loader, model, criterion, opt):
