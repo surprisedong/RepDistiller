@@ -9,6 +9,8 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision import transforms
+import torch
+import torch.utils.data.distributed
 
 
 def get_data_folder():
@@ -183,7 +185,7 @@ def get_dataloader_sample(dataset='imagenet', batch_size=128, num_workers=8, is_
     return train_loader, test_loader, len(train_set), len(train_set.classes)
 
 
-def get_imagenet_dataloader(dataset='imagenet', datapath= 'data/imagenet', batch_size=256, num_workers=16, is_instance=False):
+def get_imagenet_dataloader(args, dataset='imagenet', datapath= 'data/imagenet', batch_size=256, num_workers=16, is_instance=False):
     """
     Data Loader for imagenet
     """
@@ -215,22 +217,28 @@ def get_imagenet_dataloader(dataset='imagenet', datapath= 'data/imagenet', batch
         n_data = len(train_set)
     else:
         train_set = datasets.ImageFolder(train_folder, transform=train_transform)
+    
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+    else:
+        train_sampler = None
 
     test_set = datasets.ImageFolder(test_folder, transform=test_transform)
 
     train_loader = DataLoader(train_set,
                               batch_size=batch_size,
-                              shuffle=True,
+                              shuffle=(train_sampler is None),
                               num_workers=num_workers,
-                              pin_memory=True)
+                              pin_memory=True,
+                              sampler=train_sampler)
 
     test_loader = DataLoader(test_set,
                              batch_size=batch_size,
                              shuffle=False,
-                             num_workers=num_workers//2,
+                             num_workers=num_workers,
                              pin_memory=True)
 
     if is_instance:
         return train_loader, test_loader, n_data
     else:
-        return train_loader, test_loader
+        return train_loader, test_loader,train_sampler

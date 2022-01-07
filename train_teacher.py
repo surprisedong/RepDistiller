@@ -18,6 +18,9 @@ from dataset.imagenet import get_imagenet_dataloader
 
 from helper.util import adjust_learning_rate, accuracy, AverageMeter
 from helper.loops import train_vanilla as train, validate
+import warnings
+import torch.multiprocessing as mp
+import torch.distributed as dist
 
 
 def parse_option():
@@ -55,6 +58,23 @@ def parse_option():
     parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 
+    ### distributed training
+    parser.add_argument('--gpu', default=None, type=int,
+                    help='GPU id to use.')
+    parser.add_argument('--world-size', default=-1, type=int,
+                    help='number of nodes for distributed training')
+    parser.add_argument('--rank', default=-1, type=int,
+                    help='node rank for distributed training')
+    parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
+                        help='url used to set up distributed training')
+    parser.add_argument('--dist-backend', default='nccl', type=str,
+                        help='distributed backend')
+    parser.add_argument('--multiprocessing-distributed', action='store_true',
+                        help='Use multi-processing distributed training to launch '
+                            'N processes per node, which has N GPUs. This is the '
+                            'fastest way to use PyTorch for either single node or '
+                            'multi node data parallel training')                        
+
     parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
                     help='path to save results')
 
@@ -82,48 +102,109 @@ def parse_option():
     opt.save_folder = os.path.join(opt.model_path, opt.model_name)
     if not os.path.isdir(opt.save_folder):
         os.makedirs(opt.save_folder)
+    
+    cfg_path = os.path.join(opt.save_folder,'argument.txt')
+    with open(cfg_path, 'w') as f:
+        for key, value in vars(opt).items():
+            f.write('%s:%s\n'%(key, value))
+            print(key, value)
+
 
     return opt
 
-
 def main():
-    best_acc = 0
-
     opt = parse_option()
 
-    # dataloader
-    if opt.dataset == 'cifar100':
-        train_loader, val_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers)
-        n_cls = 100
-    elif opt.dataset == 'imagenet':
-        train_loader, val_loader = get_imagenet_dataloader(datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers)
-        n_cls = 1000
-    else:
-        raise NotImplementedError(opt.dataset)
+    if opt.gpu is not None:
+        warnings.warn('You have chosen a specific GPU. This will completely '
+                      'disable data parallelism.')
 
+    if opt.dist_url == "env://" and opt.world_size == -1:
+        opt.world_size = int(os.environ["WORLD_SIZE"])
+
+    opt.distributed = opt.world_size > 1 or opt.multiprocessing_distributed
+
+    ngpus_per_node = torch.cuda.device_count()
+    if opt.multiprocessing_distributed:
+        # Since we have ngpus_per_node processes per node, the total world_size
+        # needs to be adjusted accordingly
+        opt.world_size = ngpus_per_node * opt.world_size
+        # Use torch.multiprocessing.spawn to launch distributed processes: the
+        # main_worker process function
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, opt))
+    else:
+        # Simply call main_worker function
+        main_worker(opt.gpu, ngpus_per_node, opt)
+
+def main_worker(gpu, ngpus_per_node, opt):
+    best_acc = 0
+    opt.gpu = gpu
+    n_cls = 100 if opt.dataset == 'cifar100' else 1000
+
+    if opt.gpu is not None:
+        print("Use GPU: {} for training".format(opt.gpu))
+
+
+    if opt.distributed:
+        if opt.dist_url == "env://" and opt.rank == -1:
+            opt.rank = int(os.environ["RANK"])
+        if opt.multiprocessing_distributed:
+            # For multiprocessing distributed training, rank needs to be the
+            # global rank among all the processes
+            opt.rank = opt.rank * ngpus_per_node + gpu
+        dist.init_process_group(backend=opt.dist_backend, init_method=opt.dist_url,
+                                world_size=opt.world_size, rank=opt.rank)
     # model
     model = model_dict[opt.model](num_classes=n_cls)
 
+    if not torch.cuda.is_available():
+        print('using CPU, this will be slow')
+    elif opt.distributed:
+        # For multiprocessing distributed, DistributedDataParallel constructor
+        # should always set the single device scope, otherwise,
+        # DistributedDataParallel will use all available devices.
+        if opt.gpu is not None:
+            torch.cuda.set_device(opt.gpu)
+            model.cuda(opt.gpu)
+            # When using a single GPU per process and per
+            # DistributedDataParallel, we need to divide the batch size
+            # ourselves based on the total number of GPUs we have
+            opt.batch_size = int(opt.batch_size / ngpus_per_node)
+            opt.num_workers = int((opt.num_workers + ngpus_per_node - 1) / ngpus_per_node)
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[opt.gpu])
+        else:
+            model.cuda()
+            # DistributedDataParallel will divide and allocate batch_size to all
+            # available GPUs if device_ids are not set
+            model = torch.nn.parallel.DistributedDataParallel(model)
+    elif opt.gpu is not None:
+        torch.cuda.set_device(opt.gpu)
+        model = model.cuda(opt.gpu)
+    else:
+        # DataParallel will divide and allocate batch_size to all available GPUs
+        if opt.model.startswith('alexnet') or opt.model.startswith('vgg'):
+            model.features = torch.nn.DataParallel(model.features)
+            model.cuda()
+        else:
+            model = torch.nn.DataParallel(model).cuda()
+   
+    criterion = nn.CrossEntropyLoss().cuda(opt.gpu)
     # optimizer
     optimizer = optim.SGD(model.parameters(),
                           lr=opt.learning_rate,
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
 
-    criterion = nn.CrossEntropyLoss()
-
-    if torch.cuda.is_available():
-        model = model.cuda()
-        criterion = criterion.cuda()
-        cudnn.benchmark = True
-    else:
-        print('using CPU, this will be slow')
-
     # optionally resume from a checkpoint
     if opt.resume:
         if os.path.isfile(opt.resume):
             print("=> loading checkpoint '{}'".format(opt.resume))
-            checkpoint = torch.load(opt.resume)
+            if opt.gpu is None:
+                checkpoint = torch.load(opt.resume)
+            else:
+                # Map model to be loaded to specified single gpu.
+                loc = 'cuda:{}'.format(opt.gpu)
+                checkpoint = torch.load(opt.resume, map_location=loc)
             opt.start_epoch = checkpoint['epoch']
             best_acc = checkpoint['accuracy'] if hasattr(checkpoint,'accuracy') else 0
             model.load_state_dict(checkpoint['model'])
@@ -133,7 +214,18 @@ def main():
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
             exit(1)
-    
+
+    cudnn.benchmark = True
+
+    # dataloader
+    if opt.dataset == 'cifar100':
+        train_loader, val_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers)
+    elif opt.dataset == 'imagenet':
+        train_loader, val_loader, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers)
+    else:
+        raise NotImplementedError(opt.dataset)
+
+
     ## only evaluate
     if opt.evaluate:
         validate(val_loader, model, criterion, opt)
@@ -144,7 +236,8 @@ def main():
 
     # routine
     for epoch in range(1, opt.epochs + 1):
-
+        if opt.distributed:
+            train_sampler.set_epoch(epoch)
         adjust_learning_rate(epoch, opt, optimizer)
         print("==> training...")
 
@@ -169,7 +262,6 @@ def main():
                 'epoch': epoch,
                 'model': model.state_dict(),
                 'accuracy': best_acc,
-                'optimizer': optimizer.state_dict(),
             }
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model))
             print('saving the best model!')

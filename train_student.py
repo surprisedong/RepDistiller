@@ -87,7 +87,7 @@ def parse_option():
 
     parser.add_argument('--truncate', dest='truncate', action='store_true',
                     help='truncate eigenvar in PCA mode')
-    parser.add_argument('--eigenVar', default=0.95, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
+    parser.add_argument('--eigenVar', default=0.99, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
     parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
     parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
                     help='path to save results')
@@ -112,8 +112,8 @@ def parse_option():
 
     opt.model_t = get_teacher_name(opt.path_t)
 
-    opt.model_name = 'S:{}_T:{}_{}_{}_r:{}_a:{}_b:{}_{}'.format(opt.model_s, opt.model_t, opt.dataset, opt.distill,
-                                                                opt.gamma, opt.alpha, opt.beta, opt.trial)
+    opt.model_name = 'S:{}_T:{}_{}_{}_r:{}_a:{}_b:{}_e:{}_{}'.format(opt.model_s, opt.model_t, opt.dataset, opt.distill,
+                                                                opt.gamma, opt.alpha, opt.beta, opt.eigenVar, opt.trial)
 
     opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
     if not os.path.isdir(opt.tb_folder):
@@ -192,6 +192,7 @@ def main():
             channeltruncate = featProj.shape[1]
             channel_list.append(channeltruncate)
             criterion_kd.append(criterion)
+        print(f'channel truncate after PCA: {channel_list}')
         model_t.cpu()
         model_s = model_dict[opt.model_t+'PCA'](num_channels=channel_list, num_classes=n_cls)    
     else:

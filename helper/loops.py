@@ -22,9 +22,10 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
         data_time.update(time.time() - end)
 
         input = input.float()
+        if opt.gpu is not None:
+            input = input.cuda(opt.gpu, non_blocking=True)
         if torch.cuda.is_available():
-            input = input.cuda()
-            target = target.cuda()
+            target = target.cuda(opt.gpu, non_blocking=True)
 
         # ===================forward=====================
         output = model(input)
@@ -184,8 +185,8 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
         elif opt.distill == 'PCA':
             g_s = [feat_s[idx] for idx in opt.pcalayer]
             g_t = [feat_t[idx] for idx in opt.pcalayer]
-            criterion_kd = [criterion_kd[idx].eval() for idx in opt.pcalayer]
-            loss_group = [c(f_s, f_t) for f_s, f_t, c in zip(g_s, g_t, criterion_kd)]
+            criterion_kd_ = [criterion_kd[idx].eval() for idx in opt.pcalayer]
+            loss_group = [c(f_s, f_t) for f_s, f_t, c in zip(g_s, g_t, criterion_kd_)]
             loss_kd = sum(loss_group)
 
         else:
@@ -243,9 +244,11 @@ def validate(val_loader, model, criterion, opt):
         for idx, (input, target) in enumerate(val_loader):
 
             input = input.float()
+            if opt.gpu is not None:
+                input = input.cuda(opt.gpu, non_blocking=True)
             if torch.cuda.is_available():
-                input = input.cuda()
-                target = target.cuda()
+                target = target.cuda(opt.gpu, non_blocking=True)
+
 
             # compute output
             output = model(input)
