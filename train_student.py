@@ -102,8 +102,12 @@ def parse_option():
 
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
-    for it in iterations:
-        opt.lr_decay_epochs.append(int(it))
+    if len(iterations) == 1:
+        lr_decay_step = int(iterations[0])
+        opt.lr_decay_epochs = torch.arange(1,opt.epochs+1,lr_decay_step).numpy().tolist()
+    else:
+        for it in iterations:
+            opt.lr_decay_epochs.append(int(it))
     
     iterations = opt.pcalayer.split(',')
     opt.pcalayer = list([])

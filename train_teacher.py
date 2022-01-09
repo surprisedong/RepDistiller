@@ -52,6 +52,8 @@ def parse_option():
 
     parser.add_argument('-t', '--trial', type=int, default=0, help='the experiment id')
 
+    parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+                    help='manual epoch number (useful on restarts)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 
@@ -81,16 +83,20 @@ def parse_option():
     opt = parser.parse_args()
     
     # set different learning rate from these 4 models
-    if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
-        opt.learning_rate = 0.01
+    # if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
+    #     opt.learning_rate = 0.01
 
     opt.model_path = os.path.join(opt.output_dir,'models')
     opt.tb_path = os.path.join(opt.output_dir,'tensorboard')
 
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
-    for it in iterations:
-        opt.lr_decay_epochs.append(int(it))
+    if len(iterations) == 1:
+        lr_decay_step = int(iterations[0])
+        opt.lr_decay_epochs = torch.arange(1,opt.epochs+1,lr_decay_step).numpy().tolist()
+    else:
+        for it in iterations:
+            opt.lr_decay_epochs.append(int(it))
 
     opt.model_name = '{}_{}_lr_{}_decay_{}_trial_{}'.format(opt.model, opt.dataset, opt.learning_rate,
                                                             opt.weight_decay, opt.trial)
@@ -235,7 +241,7 @@ def main_worker(gpu, ngpus_per_node, opt):
     logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
 
     # routine
-    for epoch in range(1, opt.epochs + 1):
+    for epoch in range(opt.start_epoch+1, opt.epochs + 1):
         if opt.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(epoch, opt, optimizer)
@@ -262,6 +268,7 @@ def main_worker(gpu, ngpus_per_node, opt):
                 'epoch': epoch,
                 'model': model.state_dict(),
                 'accuracy': best_acc,
+                'optimizer': optimizer.state_dict(),
             }
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model))
             print('saving the best model!')
@@ -285,8 +292,9 @@ def main_worker(gpu, ngpus_per_node, opt):
 
     # save model
     state = {
-        'opt': opt,
+        'epoch': epoch,
         'model': model.state_dict(),
+        'accuracy': test_acc,
         'optimizer': optimizer.state_dict(),
     }
     save_file = os.path.join(opt.save_folder, '{}_last.pth'.format(opt.model))
