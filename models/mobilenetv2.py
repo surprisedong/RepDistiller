@@ -16,7 +16,7 @@ def conv_bn(inp, oup, stride):
     return nn.Sequential(
         nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
         nn.BatchNorm2d(oup),
-        nn.ReLU(inplace=True)
+        nn.ReLU6(inplace=True)
     )
 
 
@@ -24,7 +24,7 @@ def conv_1x1_bn(inp, oup):
     return nn.Sequential(
         nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
         nn.BatchNorm2d(oup),
-        nn.ReLU(inplace=True)
+        nn.ReLU6(inplace=True)
     )
 
 
@@ -42,15 +42,24 @@ class InvertedResidual(nn.Module):
             # pw
             nn.Conv2d(inp, inp * expand_ratio, 1, 1, 0, bias=False),
             nn.BatchNorm2d(inp * expand_ratio),
-            nn.ReLU(inplace=True),
+            nn.ReLU6(inplace=True),
             # dw
             nn.Conv2d(inp * expand_ratio, inp * expand_ratio, 3, stride, 1, groups=inp * expand_ratio, bias=False),
             nn.BatchNorm2d(inp * expand_ratio),
-            nn.ReLU(inplace=True),
+            nn.ReLU6(inplace=True),
             # pw-linear
             nn.Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False),
             nn.BatchNorm2d(oup),
-        )
+        ) if expand_ratio !=1 else \
+            nn.Sequential(
+            # dw
+            nn.Conv2d(inp * expand_ratio, inp * expand_ratio, 3, stride, 1, groups=inp * expand_ratio, bias=False),
+            nn.BatchNorm2d(inp * expand_ratio),
+            nn.ReLU6(inplace=True),
+            # pw-linear
+            nn.Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(oup),
+            )
         self.names = ['0', '1', '2', '3', '4', '5', '6', '7']
 
     def forward(self, x):
@@ -65,7 +74,6 @@ class MobileNetV2(nn.Module):
     """mobilenetV2"""
     def __init__(self, T,
                  feature_dim,
-                 input_size=32,
                  width_mult=1.,
                  remove_avg=False):
         super(MobileNetV2, self).__init__()
@@ -75,7 +83,7 @@ class MobileNetV2(nn.Module):
         self.interverted_residual_setting = [
             # t, c, n, s
             [1, 16, 1, 1],
-            [T, 24, 2, 1],
+            [T, 24, 2, 2],
             [T, 32, 3, 2],
             [T, 64, 4, 2],
             [T, 96, 3, 1],
@@ -84,7 +92,6 @@ class MobileNetV2(nn.Module):
         ]
 
         # building first layer
-        assert input_size % 32 == 0
         input_channel = int(32 * width_mult)
         self.conv1 = conv_bn(3, input_channel, 2)
 
@@ -110,8 +117,6 @@ class MobileNetV2(nn.Module):
             nn.Linear(self.last_channel, feature_dim),
         )
 
-        H = input_size // (32//2)
-        self.avgpool = nn.AvgPool2d(H, ceil_mode=True)
 
         self._initialize_weights()
         print(T, width_mult)
@@ -135,27 +140,30 @@ class MobileNetV2(nn.Module):
         f0 = out
 
         out = self.blocks[0](out)
-        out = self.blocks[1](out)
         f1 = out
-        out = self.blocks[2](out)
+        out = self.blocks[1](out)
         f2 = out
-        out = self.blocks[3](out)
-        out = self.blocks[4](out)
+        out = self.blocks[2](out)
         f3 = out
-        out = self.blocks[5](out)
-        out = self.blocks[6](out)
+        out = self.blocks[3](out)
         f4 = out
+        out = self.blocks[4](out)
+        f5 = out
+        out = self.blocks[5](out)
+        f6 = out
+        out = self.blocks[6](out)
+        f7 = out
 
         out = self.conv2(out)
+        f8 = out
 
         if not self.remove_avg:
-            out = self.avgpool(out)
+            out = nn.functional.adaptive_avg_pool2d(out, (1, 1))
         out = out.view(out.size(0), -1)
-        f5 = out
         out = self.classifier(out)
 
         if is_feat:
-            return [f0, f1, f2, f3, f4, f5], out
+            return [f0, f1, f2, f3, f4, f5, f6, f7, f8], out
         else:
             return out
 
@@ -179,9 +187,78 @@ def mobilenetv2_T_w(T, W, feature_dim=100):
     model = MobileNetV2(T=T, feature_dim=feature_dim, width_mult=W)
     return model
 
+def mobilenetv2_raw(num_classes):
+    return mobilenetv2_T_w(6, 1, num_classes)
 
 def mobile_half(num_classes):
     return mobilenetv2_T_w(6, 0.5, num_classes)
+
+
+
+
+class MobileNetV2PCA(MobileNetV2):
+    def __init__(self, T,
+                feature_dim,
+                width_mult=1.,
+                remove_avg=False,
+                num_channels = [32,16,24,32,64,96,160,320,1280]):
+        super(MobileNetV2PCA, self).__init__(T,feature_dim,width_mult,remove_avg)
+        # setting of inverted residual blocks
+        self.interverted_residual_setting = [
+            # t, c, n, s
+            [1, num_channels[1], 1, 1],
+            [T, num_channels[2], 2, 2],
+            [T, num_channels[3], 3, 2],
+            [T, num_channels[4], 4, 2],
+            [T, num_channels[5], 3, 1],
+            [T, num_channels[6], 3, 2],
+            [T, num_channels[7], 1, 1],
+    ]
+
+        # building first layer
+        input_channel = int(num_channels[0])
+        self.conv1 = conv_bn(3, input_channel, 2)
+
+        # building inverted residual blocks
+        self.blocks = nn.ModuleList([])
+        for t, c, n, s in self.interverted_residual_setting:
+            output_channel = int(c * width_mult)
+            layers = []
+            strides = [s] + [1] * (n - 1)
+            for stride in strides:
+                layers.append(
+                    InvertedResidual(input_channel, output_channel, stride, t)
+                )
+                input_channel = output_channel
+            self.blocks.append(nn.Sequential(*layers))
+
+        self.last_channel = num_channels[8]
+        self.conv2 = conv_1x1_bn(input_channel, self.last_channel)
+
+        # building classifier
+        self.classifier = nn.Sequential(
+            # nn.Dropout(0.5),
+            nn.Linear(self.last_channel, feature_dim),
+        )
+
+        self._initialize_weights()
+        print(T, width_mult)
+
+
+def mobilenetv2_T_w_pca(T, W, num_channels, feature_dim=100):
+    model = MobileNetV2PCA(T=T, num_channels=num_channels ,feature_dim=feature_dim, width_mult=W)
+    return model
+
+def mobilenetv2_raw_pca(num_channels,num_classes):
+    return mobilenetv2_T_w_pca(6, 1,num_channels, num_classes)
+
+def mobile_half_pca(num_channels,num_classes):
+    return mobilenetv2_T_w_pca(6, 0.5, num_channels, num_classes)
+
+
+
+
+
 
 
 if __name__ == '__main__':

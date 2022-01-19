@@ -77,8 +77,9 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         self.in_planes = 64
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.in_planes)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
@@ -141,6 +142,7 @@ class ResNet(nn.Module):
     def forward(self, x, is_feat=False, preact=False):
         out = F.relu(self.bn1(self.conv1(x)))
         f0 = out
+        out = self.maxpool(out)
         out, f1_pre = self.layer1(out)
         f1 = out
         out, f2_pre = self.layer2(out)
@@ -167,8 +169,9 @@ class ResNetPCA(nn.Module):
         super(ResNetPCA, self).__init__()
         self.in_planes = num_channels[0]
         
-        self.conv1 = nn.Conv2d(3, num_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(num_channels[0])
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, num_channels[1], num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, num_channels[2], num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, num_channels[3], num_blocks[2], stride=2)
@@ -231,6 +234,7 @@ class ResNetPCA(nn.Module):
     def forward(self, x, is_feat=False, preact=False):
         out = F.relu(self.bn1(self.conv1(x)))
         f0 = out
+        out = self.maxpool(out)
         out, f1_pre = self.layer1(out)
         f1 = out
         out, f2_pre = self.layer2(out)
