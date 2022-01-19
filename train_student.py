@@ -78,6 +78,7 @@ def parse_option():
     parser.add_argument('-r', '--gamma', type=float, default=1, help='weight for classification')
     parser.add_argument('-a', '--alpha', type=float, default=None, help='weight balance for KD')
     parser.add_argument('-b', '--beta', type=float, default=None, help='weight balance for other losses')
+    parser.add_argument('--preact', dest='preact', action='store_true',help='learning feature before activation layer')
 
     # KL distillation
     parser.add_argument('--kd_T', type=float, default=4, help='temperature for KD distillation')
@@ -93,8 +94,7 @@ def parse_option():
     parser.add_argument('--hint_layer', default=2, type=int, choices=[0, 1, 2, 3, 4])
 
     # PCA distillation 
-    parser.add_argument('--truncate', dest='truncate', action='store_true',
-                    help='truncate eigenvar in PCA mode')
+    parser.add_argument('--truncate', dest='truncate', action='store_true',help='truncate eigenvar in PCA mode')
     parser.add_argument('--eigenVar', default=0.99, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
     parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
 

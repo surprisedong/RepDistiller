@@ -122,12 +122,9 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
 
 
         # ===================forward=====================
-        preact = False
-        if opt.distill in ['abound']:
-            preact = True
-        feat_s, logit_s = model_s(input, is_feat=True, preact=preact)
+        feat_s, logit_s = model_s(input, is_feat=True, preact=opt.preact)
         with torch.no_grad():
-            feat_t, logit_t = model_t(input, is_feat=True, preact=preact)
+            feat_t, logit_t = model_t(input, is_feat=True, preact=opt.preact)
             feat_t = [f.detach() for f in feat_t]
 
         # cls + kl div

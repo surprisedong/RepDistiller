@@ -13,10 +13,10 @@ def build_model_s(opt):
     data = torch.rand(opt.batch_size, 3, 32, 32) if opt.dataset == 'cifar100' else torch.rand(opt.batch_size, 3, 224, 224)
     model_t.eval()
     if opt.model_t.startswith('ResNet'):
-        feat_t, _ = model_t(data, is_feat=True,preact=False)
+        feat_t, _ = model_t(data, is_feat=True,preact=opt.preact)
         feat_t = feat_t[:-1]
     elif opt.model_t.startswith('MobileNet'):
-        feat_t, _ = model_t(data, is_feat=True,preact=True)
+        feat_t, _ = model_t(data, is_feat=True,preact=opt.preact)
     else:
         assert False, 'unsupported model right now'
     
