@@ -6,7 +6,8 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from PIL import Image
-
+import torch
+import torch.utils.data.distributed
 """
 mean = {
     'cifar100': (0.5071, 0.4867, 0.4408),
@@ -58,7 +59,7 @@ class CIFAR100Instance(datasets.CIFAR100):
         return img, target, index
 
 
-def get_cifar100_dataloaders(batch_size=128, num_workers=8, is_instance=False):
+def get_cifar100_dataloaders(batch_size=128, num_workers=8, is_instance=False, distributed=False):
     """
     cifar 100
     """
@@ -86,10 +87,15 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8, is_instance=False):
                                       download=True,
                                       train=True,
                                       transform=train_transform)
+    if distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+    else:
+        train_sampler = None
     train_loader = DataLoader(train_set,
                               batch_size=batch_size,
-                              shuffle=True,
-                              num_workers=num_workers)
+                              shuffle=(train_sampler is None),
+                              num_workers=num_workers,
+                              sampler=train_sampler)
 
     test_set = datasets.CIFAR100(root=data_folder,
                                  download=True,
@@ -101,9 +107,9 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8, is_instance=False):
                              num_workers=int(num_workers/2))
 
     if is_instance:
-        return train_loader, test_loader, n_data
+        return train_loader, test_loader, n_data, train_sampler
     else:
-        return train_loader, test_loader
+        return train_loader, test_loader, train_sampler
 
 
 class CIFAR100InstanceSample(datasets.CIFAR100):

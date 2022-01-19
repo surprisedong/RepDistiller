@@ -239,6 +239,6 @@ def get_imagenet_dataloader(args, dataset='imagenet', datapath= 'data/imagenet',
                              pin_memory=True)
 
     if is_instance:
-        return train_loader, test_loader, n_data
+        return train_loader, test_loader, n_data, train_sampler
     else:
         return train_loader, test_loader,train_sampler
