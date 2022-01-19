@@ -68,6 +68,11 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
 
 def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, opt):
     """One epoch distillation"""
+
+    ## fix bug: 'DataParallel' object is not iterable
+    if opt.distributed:
+         module_list = module_list.module
+
     # set modules as train()
     for module in module_list:
         module.train()
@@ -104,16 +109,21 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
         data_time.update(time.time() - end)
 
         input = input.float()
+        if opt.gpu is not None:
+            input = input.cuda(opt.gpu, non_blocking=True)
         if torch.cuda.is_available():
-            input = input.cuda()
-            target = target.cuda()
-            index = index.cuda()
+            target = target.cuda(opt.gpu, non_blocking=True)
+            index = index.cuda(opt.gpu, non_blocking=True)
             if opt.distill in ['crd']:
-                contrast_idx = contrast_idx.cuda()
+                contrast_idx = contrast_idx.cuda(opt.gpu, non_blocking=True)
+            if opt.distill in ['PCA']:
+                for crit in criterion_kd:
+                    crit.u = crit.u.cuda(opt.gpu, non_blocking=True)
+
 
         # ===================forward=====================
         preact = False
-        if opt.distill in ['abound','PCA']:
+        if opt.distill in ['abound']:
             preact = True
         feat_s, logit_s = model_s(input, is_feat=True, preact=preact)
         with torch.no_grad():

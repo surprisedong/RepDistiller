@@ -14,6 +14,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
+from torch.utils.data import dataset
 
 
 from models import model_dict
@@ -21,8 +22,8 @@ from models.util import Embed, ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
-
-from helper.util import adjust_learning_rate
+from dataset.imagenet import get_imagenet_dataloader
+from helper.util import adjust_learning_rate,get_teacher_name,load_teacher
 
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss, PCALoss
@@ -30,6 +31,11 @@ from crd.criterion import CRDLoss
 
 from helper.loops import train_distill as train, validate
 from helper.pretrain import init
+import warnings
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from helper.pcamodel import build_model_s
+import copy
 
 
 def parse_option():
@@ -52,14 +58,15 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 
     # dataset
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet'], help='dataset')
+    parser.add_argument('--datapath', type=str, default='', help='path of dataset')
 
     # model
     parser.add_argument('--model_s', type=str, default='resnet8',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50','ResNet50PCA','ResNet34PCA',
-                                 'MobileNetV2', 'ShuffleV1', 'ShuffleV2'])
+                                 'MobileNetV2', 'ShuffleV1', 'ShuffleV2','MobileNetV2PCA'])
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
 
     # distillation
@@ -85,10 +92,30 @@ def parse_option():
     # hint layer
     parser.add_argument('--hint_layer', default=2, type=int, choices=[0, 1, 2, 3, 4])
 
+    # PCA distillation 
     parser.add_argument('--truncate', dest='truncate', action='store_true',
                     help='truncate eigenvar in PCA mode')
     parser.add_argument('--eigenVar', default=0.99, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
     parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
+
+    
+    ### distributed training
+    parser.add_argument('--gpu', default=None, type=int,
+                    help='GPU id to use.')
+    parser.add_argument('--world-size', default=-1, type=int,
+                    help='number of nodes for distributed training')
+    parser.add_argument('--rank', default=-1, type=int,
+                    help='node rank for distributed training')
+    parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
+                        help='url used to set up distributed training')
+    parser.add_argument('--dist-backend', default='nccl', type=str,
+                        help='distributed backend')
+    parser.add_argument('--multiprocessing-distributed', action='store_true',
+                        help='Use multi-processing distributed training to launch '
+                            'N processes per node, which has N GPUs. This is the '
+                            'fastest way to use PyTorch for either single node or '
+                            'multi node data parallel training')   
+    
     parser.add_argument('-o', '--output_dir', default='res', type=str, metavar='PATH',
                     help='path to save results')
     opt = parser.parse_args()
@@ -132,32 +159,61 @@ def parse_option():
         for key, value in vars(opt).items():
             f.write('%s:%s\n'%(key, value))
             print(key, value)
+        
+    opt.n_cls = 100 if opt.dataset == 'cifar100' else 1000
+
+    if opt.distill == 'PCA':
+        ## we need to build model_s at first
+        opt.criterion_pca, opt.channel_list = build_model_s(opt)
 
     return opt
 
 
-def get_teacher_name(model_path):
-    """parse teacher name"""
-    segments = model_path.split('/')[-2].split('_')
-    if segments[0] != 'wrn':
-        return segments[0]
-    else:
-        return segments[0] + '_' + segments[1] + '_' + segments[2]
-
-
-def load_teacher(model_path, n_cls):
-    print('==> loading teacher model')
-    model_t = get_teacher_name(model_path)
-    model = model_dict[model_t](num_classes=n_cls)
-    model.load_state_dict(torch.load(model_path)['model'])
-    print('==> done')
-    return model
-
-
 def main():
-    best_acc = 0
-
     opt = parse_option()
+    if opt.gpu is not None:
+        warnings.warn('You have chosen a specific GPU. This will completely '
+                      'disable data parallelism.')
+
+    if opt.dist_url == "env://" and opt.world_size == -1:
+        opt.world_size = int(os.environ["WORLD_SIZE"])
+
+    opt.distributed = opt.world_size > 1 or opt.multiprocessing_distributed
+
+    ngpus_per_node = torch.cuda.device_count()
+    if opt.multiprocessing_distributed:
+        # Since we have ngpus_per_node processes per node, the total world_size
+        # needs to be adjusted accordingly
+        opt.world_size = ngpus_per_node * opt.world_size
+        # Use torch.multiprocessing.spawn to launch distributed processes: the
+        # main_worker process function
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, opt))
+    else:
+        # Simply call main_worker function
+        main_worker(opt.gpu, ngpus_per_node, opt)
+
+def main_worker(gpu, ngpus_per_node, opt):
+    best_acc = 0
+    opt.gpu = gpu
+
+    if opt.gpu is not None:
+        print("Use GPU: {} for training".format(opt.gpu))
+
+    if opt.distributed:
+        if opt.dist_url == "env://" and opt.rank == -1:
+            opt.rank = int(os.environ["RANK"])
+        if opt.multiprocessing_distributed:
+            # For multiprocessing distributed training, rank needs to be the
+            # global rank among all the processes
+            opt.rank = opt.rank * ngpus_per_node + gpu
+        dist.init_process_group(backend=opt.dist_backend, init_method=opt.dist_url,
+                                world_size=opt.world_size, rank=opt.rank)
+        if opt.gpu is not None:
+            # When using a single GPU per process and per
+            # DistributedDataParallel, we need to divide the batch size
+            # ourselves based on the total number of GPUs we have
+            opt.batch_size = int(opt.batch_size / ngpus_per_node)
+            opt.num_workers = int((opt.num_workers + ngpus_per_node - 1) / ngpus_per_node)
 
     # tensorboard logger
     logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
@@ -170,39 +226,22 @@ def main():
                                                                                k=opt.nce_k,
                                                                                mode=opt.mode)
         else:
-            train_loader, val_loader, n_data = get_cifar100_dataloaders(batch_size=opt.batch_size,
+            train_loader, val_loader, n_data, train_sampler = get_cifar100_dataloaders(batch_size=opt.batch_size,
                                                                         num_workers=opt.num_workers,
-                                                                        is_instance=True)
-        n_cls = 100
+                                                                        is_instance=True,
+                                                                        distributed = opt.distributed)
+    elif opt.dataset == 'imagenet':
+        assert not opt.distill in ['crd'],"unsupported now"
+        train_loader, val_loader, n_data, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers,is_instance=True)
     else:
         raise NotImplementedError(opt.dataset)
 
     # model
-    model_t = load_teacher(opt.path_t, n_cls)
-    if opt.distill == 'PCA':
-        print("model_s & model_t have same structure but less channels in PCA mode, building model_s......")
-        criterion_kd = nn.ModuleList([])
-        channel_list = []
-        data = torch.rand(opt.batch_size, 3, 32, 32)
-        if torch.cuda.is_available():
-            data = data.cuda()
-            model_t.cuda()
+    model_t = load_teacher(opt.path_t, opt.n_cls)
+    model_s = model_dict[opt.model_t+'PCA'](num_channels=opt.channel_list, num_classes=opt.n_cls) \
+        if opt.distill == 'PCA' else model_dict[opt.model_s](num_classes=opt.n_cls)
+    data = torch.randn(2, 3, 32, 32) if opt.dataset == 'cifar100' else torch.randn(2, 3, 224, 224)
 
-        model_t.eval()
-        feat_t, _ = model_t(data, is_feat=True,preact=True)
-        for feat in feat_t[:-1]:
-            criterion = PCALoss(eigenVar=opt.eigenVar,truncate=opt.truncate)
-            featProj = criterion.projection(feat)
-            channeltruncate = featProj.shape[1]
-            channel_list.append(channeltruncate)
-            criterion_kd.append(criterion)
-        print(f'channel truncate after PCA: {channel_list}')
-        model_t.cpu()
-        model_s = model_dict[opt.model_t+'PCA'](num_channels=channel_list, num_classes=n_cls)    
-    else:
-        model_s = model_dict[opt.model_s](num_classes=n_cls)
-
-    data = torch.randn(2, 3, 32, 32)
     model_t.eval()
     model_s.eval()
     feat_t, _ = model_t(data, is_feat=True)
@@ -297,28 +336,54 @@ def main():
         # classification training
         pass
     elif opt.distill == 'PCA':
-        pass
+        criterion_kd = copy.deepcopy(opt.criterion_pca)
     else:
         raise NotImplementedError(opt.distill)
 
-    criterion_list = nn.ModuleList([])
-    criterion_list.append(criterion_cls)    # classification loss
-    criterion_list.append(criterion_div)    # KL divergence loss, original knowledge distillation
-    criterion_list.append(criterion_kd)     # other knowledge distillation loss
 
+    module_list.append(model_t)
+
+    if not torch.cuda.is_available():
+        print('using CPU, this will be slow')
+    elif opt.distributed:
+        # For multiprocessing distributed, DistributedDataParallel constructor
+        # should always set the single device scope, otherwise,
+        # DistributedDataParallel will use all available devices.
+        if opt.gpu is not None:
+            torch.cuda.set_device(opt.gpu)
+            trainable_list.cuda(opt.gpu)
+            module_list.cuda(opt.gpu)
+            trainable_list = torch.nn.parallel.DistributedDataParallel(trainable_list, device_ids=[opt.gpu])
+            module_list = torch.nn.parallel.DistributedDataParallel(module_list, device_ids=[opt.gpu])
+        else:
+            trainable_list.cuda()
+            module_list.cuda()
+            data = data.cuda()
+            # DistributedDataParallel will divide and allocate batch_size to all
+            # available GPUs if device_ids are not set
+            trainable_list = torch.nn.parallel.DistributedDataParallel(trainable_list)
+            module_list = torch.nn.parallel.DistributedDataParallel(module_list)
+    elif opt.gpu is not None:
+        torch.cuda.set_device(opt.gpu)
+        trainable_list = trainable_list.cuda(opt.gpu)
+        module_list = module_list.cuda(opt.gpu)
+    else:
+        # DataParallel will divide and allocate batch_size to all available GPUs
+        trainable_list = torch.nn.DataParallel(trainable_list).cuda()
+        module_list = torch.nn.DataParallel(module_list).cuda()
+
+
+    criterion_list = nn.ModuleList([])
+    criterion_list.append(criterion_cls.cuda(opt.gpu))    # classification loss
+    criterion_list.append(criterion_div.cuda(opt.gpu))    # KL divergence loss, original knowledge distillation
+    criterion_list.append(criterion_kd.cuda(opt.gpu))     # other knowledge distillation loss
     # optimizer
     optimizer = optim.SGD(trainable_list.parameters(),
                           lr=opt.learning_rate,
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
 
-    # append teacher after optimizer to avoid weight_decay
-    module_list.append(model_t)
-
-    if torch.cuda.is_available():
-        module_list.cuda()
-        criterion_list.cuda()
-        cudnn.benchmark = True
+    cudnn.benchmark = True
 
     # validate teacher accuracy
     teacher_acc, _, _ = validate(val_loader, model_t, criterion_cls, opt)
@@ -326,7 +391,8 @@ def main():
 
     # routine
     for epoch in range(1, opt.epochs + 1):
-
+        if opt.distributed:
+            train_sampler.set_epoch(epoch)
         adjust_learning_rate(epoch, opt, optimizer)
         print("==> training...")
 

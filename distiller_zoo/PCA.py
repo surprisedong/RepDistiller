@@ -27,6 +27,8 @@ class PCALoss(nn.Module):
             # Centering the data
             img = img - mn
             self.u, self.s = self.get_projection_matrix(img, self.eigenVar, self.truncate)
+            self.u = self.u.detach()
+            self.s = self.s.detach()
             self.collectStats = False
 
         channels_truncate = self.u.shape[1]

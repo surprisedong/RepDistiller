@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import torch
 import numpy as np
-
+from models import model_dict
 
 def adjust_learning_rate_new(epoch, optimizer, LUT):
     """
@@ -55,6 +55,29 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].contiguous().view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+
+def get_teacher_name(model_path):
+    """parse teacher name"""
+    segments = model_path.split('/')[-2].split('_')
+    if segments[0] != 'wrn':
+        return segments[0]
+    else:
+        return segments[0] + '_' + segments[1] + '_' + segments[2]
+
+
+def load_teacher(model_path, n_cls):
+    print('==> loading teacher model')
+    model_t = get_teacher_name(model_path)
+    model = model_dict[model_t](num_classes=n_cls)
+    try:
+        model.load_state_dict(torch.load(model_path)['model'])
+    except:
+        ## load distributed training model
+        model.load_state_dict({k.replace('module.',''):v for k,v in torch.load(model_path)['model'].items()})
+    print('==> done')
+    return model
+
 
 
 if __name__ == '__main__':
