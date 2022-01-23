@@ -54,10 +54,9 @@ def init(model_s, model_t, init_modules, criterion, train_loader, logger, opt):
                     contrast_idx = contrast_idx.cuda()
 
             # ============= forward ==============
-            preact = (opt.distill == 'abound')
-            feat_s, _ = model_s(input, is_feat=True, preact=preact)
+            feat_s, _ = model_s(input, is_feat=True, preact=opt.preact)
             with torch.no_grad():
-                feat_t, _ = model_t(input, is_feat=True, preact=preact)
+                feat_t, _ = model_t(input, is_feat=True, preact=opt.preact)
                 feat_t = [f.detach() for f in feat_t]
 
             if opt.distill == 'abound':
