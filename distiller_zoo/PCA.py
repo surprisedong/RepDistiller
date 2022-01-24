@@ -2,10 +2,10 @@ import torch.nn as nn
 import torch
 
 class PCALoss(nn.Module):
-    def __init__(self,eigenVar=1,truncate=False,microBlockSz=1,channelsDiv=1) -> None:
+    def __init__(self,eigenVar=1,attention=False,microBlockSz=1,channelsDiv=1) -> None:
         super(PCALoss, self).__init__()
         self.eigenVar = eigenVar
-        self.truncate = truncate
+        self.attention = attention
         self.microBlockSz = microBlockSz
         self.channelsDiv = channelsDiv
         self.collectStats = True
@@ -15,7 +15,11 @@ class PCALoss(nn.Module):
     def forward(self,f_s,f_t):
         f_t = self.projection(f_t)
         assert f_t.shape == f_s.shape
-        return self.crit(f_s,f_t)
+        if self.attention:
+            return sum([(self.s[c] / torch.sum(self.s) * self.crit(f_s[:,c,:,:],f_t[:,c,:,:])) for c in range(len(self.s))])
+        else:
+            return self.crit(f_s,f_t)
+            
 
 
     def projection(self, img):
@@ -26,7 +30,7 @@ class PCALoss(nn.Module):
             mn = torch.mean(img, dim=1, keepdim=True)
             # Centering the data
             img = img - mn
-            self.u, self.s = self.get_projection_matrix(img, self.eigenVar, self.truncate)
+            self.u, self.s = self.get_projection_matrix(img, self.eigenVar)
             self.u = self.u.detach()
             self.s = self.s.detach()
             self.collectStats = False
@@ -39,12 +43,12 @@ class PCALoss(nn.Module):
 
         return imProj
 
-    def get_projection_matrix(self, im, eigenVar, truncate=False):
+    def get_projection_matrix(self, im, eigenVar):
         # covariance matrix
         cov = torch.matmul(im, im.t()) / im.shape[1]
         # svd
         u, s, _ = torch.svd(cov)
-        if truncate:
+        if eigenVar < 1:
             # find index where eigenvalues are more important
             sRatio = torch.cumsum(s, 0) / torch.sum(s)
             cutIdx = (sRatio >= eigenVar).nonzero()[0]
