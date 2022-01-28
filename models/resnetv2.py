@@ -7,6 +7,7 @@ Reference:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from distiller_zoo import PCALoss
 
 
 class BasicBlock(nn.Module):
@@ -130,6 +131,11 @@ class ResNet(nn.Module):
 
         return [bn1, bn2, bn3, bn4]
 
+    def pcat(self,x,eigenVar=1):
+        trans = PCALoss(eigenVar=eigenVar)
+        return trans.projection(x,restore=True)
+
+
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
@@ -139,34 +145,70 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, is_feat=False, preact=False):
-        out = F.relu(self.bn1(self.conv1(x)))
+    def forward(self, x, is_feat=False, preact=False, eigenVar=1):
+        out = self.bn1(self.conv1(x))
+        f0_pre = out
+        out = F.relu(out)
         f0 = out
+        if (eigenVar < 1):
+            if preact:
+                out = self.pcat(f0_pre,eigenVar)
+                out = F.relu(out)
+            else:
+                out = self.pcat(out,eigenVar)
+
         out = self.maxpool(out)
         out, f1_pre = self.layer1(out)
         f1 = out
+        if (eigenVar < 1):
+            if preact:
+                out = self.pcat(f1_pre,eigenVar)
+                out = F.relu(out)
+            else:
+                out = self.pcat(out,eigenVar)
+
         out, f2_pre = self.layer2(out)
         f2 = out
+        if (eigenVar < 1):
+            if preact:
+                out = self.pcat(f2_pre,eigenVar)
+                out = F.relu(out)
+            else:
+                out = self.pcat(out,eigenVar)
+
         out, f3_pre = self.layer3(out)
         f3 = out
+        if (eigenVar < 1):
+            if preact:
+                out = self.pcat(f3_pre,eigenVar)
+                out = F.relu(out)
+            else:
+                out = self.pcat(out,eigenVar)
+
         out, f4_pre = self.layer4(out)
         f4 = out
+        if (eigenVar < 1):
+            if preact:
+                out = self.pcat(f4_pre,eigenVar)
+                out = F.relu(out)
+            else:
+                out = self.pcat(out,eigenVar)
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         f5 = out
         out = self.linear(out)
         if is_feat:
             if preact:
-                return [[f0, f1_pre, f2_pre, f3_pre, f4_pre, f5], out]
+                return [[f0_pre, f1_pre, f2_pre, f3_pre, f4_pre, f5], out]
             else:
                 return [f0, f1, f2, f3, f4, f5], out
         else:
             return out
 
 
-class ResNetPCA(nn.Module):
-    def __init__(self, block, num_blocks, num_channels, num_classes=10, zero_init_residual=False):
-        super(ResNetPCA, self).__init__()
+class ResNetPCA(ResNet):
+    def __init__(self, block, num_blocks, num_channels=[64,64,128,256,512], num_classes=10, zero_init_residual=False):
+        super(ResNetPCA, self).__init__(block=block,num_blocks=num_blocks)
         self.in_planes = num_channels[0]
         
         self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
@@ -195,67 +237,6 @@ class ResNetPCA(nn.Module):
                     nn.init.constant_(m.bn3.weight, 0)
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
-
-    def get_feat_modules(self):
-        feat_m = nn.ModuleList([])
-        feat_m.append(self.conv1)
-        feat_m.append(self.bn1)
-        feat_m.append(self.layer1)
-        feat_m.append(self.layer2)
-        feat_m.append(self.layer3)
-        feat_m.append(self.layer4)
-        return feat_m
-
-    def get_bn_before_relu(self):
-        if isinstance(self.layer1[0], Bottleneck):
-            bn1 = self.layer1[-1].bn3
-            bn2 = self.layer2[-1].bn3
-            bn3 = self.layer3[-1].bn3
-            bn4 = self.layer4[-1].bn3
-        elif isinstance(self.layer1[0], BasicBlock):
-            bn1 = self.layer1[-1].bn2
-            bn2 = self.layer2[-1].bn2
-            bn3 = self.layer3[-1].bn2
-            bn4 = self.layer4[-1].bn2
-        else:
-            raise NotImplementedError('ResNet unknown block error !!!')
-
-        return [bn1, bn2, bn3, bn4]
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1] * (num_blocks - 1)
-        layers = []
-        for i in range(num_blocks):
-            stride = strides[i]
-            layers.append(block(self.in_planes, planes, stride, i == num_blocks - 1))
-            self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
-
-    def forward(self, x, is_feat=False, preact=False):
-        out = F.relu(self.bn1(self.conv1(x)))
-        f0 = out
-        out = self.maxpool(out)
-        out, f1_pre = self.layer1(out)
-        f1 = out
-        out, f2_pre = self.layer2(out)
-        f2 = out
-        out, f3_pre = self.layer3(out)
-        f3 = out
-        out, f4_pre = self.layer4(out)
-        f4 = out
-        out = self.avgpool(out)
-        out = out.view(out.size(0), -1)
-        f5 = out
-        out = self.linear(out)
-        if is_feat:
-            if preact:
-                return [[f0, f1_pre, f2_pre, f3_pre, f4_pre, f5], out]
-            else:
-                return [f0, f1, f2, f3, f4, f5], out
-        else:
-            return out
-        
-
 
 
 

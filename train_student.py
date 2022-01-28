@@ -29,7 +29,8 @@ from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlatio
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss, PCALoss
 from crd.criterion import CRDLoss
 
-from helper.loops import train_distill as train, validate
+from helper.loops import train_distill as train
+from helper.loops import validate_distill as validate
 from helper.pretrain import init
 import warnings
 import torch.multiprocessing as mp

@@ -17,7 +17,8 @@ from dataset.cifar100 import get_cifar100_dataloaders
 from dataset.imagenet import get_imagenet_dataloader
 
 from helper.util import adjust_learning_rate, accuracy, AverageMeter
-from helper.loops import train_vanilla as train, validate
+from helper.loops import train_vanilla as train
+from helper.loops import validate_vanilla as validate
 import warnings
 import torch.multiprocessing as mp
 import torch.distributed as dist
@@ -59,6 +60,10 @@ def parse_option():
 
     parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
+    
+    ## pca transform test
+    parser.add_argument('--eigenVar', type=float, default=1, help='eigenVar ratio, i.e. trancate threshold in PCA, if < 1, transform feature map')
+    parser.add_argument('--preact', dest='preact', action='store_true',help='learning feature before activation layer')
 
     ### distributed training
     parser.add_argument('--gpu', default=None, type=int,
