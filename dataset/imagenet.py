@@ -11,7 +11,8 @@ from torchvision import datasets
 from torchvision import transforms
 import torch
 import torch.utils.data.distributed
-
+from torch.utils.data.sampler import SubsetRandomSampler
+import random
 
 def get_data_folder():
     """
@@ -242,3 +243,32 @@ def get_imagenet_dataloader(args, dataset='imagenet', datapath= 'data/imagenet',
         return train_loader, test_loader, n_data, train_sampler
     else:
         return train_loader, test_loader,train_sampler
+
+
+
+
+def get_subimagenet_dataloader(datapath,batch_size):
+    """
+    Data Loader for imagenet
+    """
+
+
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    train_folder = os.path.join(datapath, 'train')
+    train_set = datasets.ImageFolder(train_folder, transform=train_transform)
+
+    data_len = 50000
+    rndIdx = random.randint(0, data_len - batch_size)
+    sample = SubsetRandomSampler(np.linspace(rndIdx, rndIdx + batch_size, batch_size + 1, dtype=np.int)[:-1])
+    statloader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False, num_workers=2,
+                                            sampler=sample)
+    
+    return statloader
