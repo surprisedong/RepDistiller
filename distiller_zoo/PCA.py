@@ -17,12 +17,6 @@ class PCALoss(nn.Module):
     def forward(self,f_s,f_t):
         f_t = self.projection(f_t)
         assert f_t.shape == f_s.shape
-        # Centering the f_s
-        N, C, H, W = f_s.shape  # N x C x H x W
-        f_s = PCALoss.featuresReshape(f_s, N, C, H, W, self.microBlockSz,self.channelsDiv) # C * (N * H * W)
-        mn = torch.mean(f_s, dim=1, keepdim=True)
-        f_s = f_s - mn
-        f_s = PCALoss.featuresReshapeBack(f_s, N, C, H, W, self.microBlockSz,self.channelsDiv)
 
         if self.attention:
             return sum([(self.s[c] / torch.sum(self.s) * self.crit(f_s[:,c,:,:],f_t[:,c,:,:])) for c in range(len(self.s))])
@@ -34,17 +28,18 @@ class PCALoss(nn.Module):
     def projection(self, img, restore=False):
         N, C, H, W = img.shape  # N x C x H x W
         img = PCALoss.featuresReshape(img, N, C, H, W, self.microBlockSz,self.channelsDiv) # C * (N * H * W)
-        mn = torch.mean(img, dim=1, keepdim=True)
-        # Centering the data
-        img = img - mn
+        img_ori = img
 
         if self.collectStats:
+            mn = torch.mean(img, dim=1, keepdim=True)
+            # Centering the data
+            img = img - mn
             self.u, self.s = self.get_projection_matrix(img, self.eigenVar)
             self.u = self.u.detach()
             self.s = self.s.detach()
             #self.collectStats = False ##use same u&s will affect performance 
 
-        imProj = torch.matmul(self.u.t(), img)
+        imProj = torch.matmul(self.u.t(), img_ori)
         if restore:
             imProj = torch.matmul(self.u, imProj) ##restore ori img
 
@@ -58,7 +53,7 @@ class PCALoss(nn.Module):
             imProj = PCALoss.featuresReshapeBack(imProj, N, C, H, W, self.microBlockSz,self.channelsDiv)
         
         else:
-            imProj = PCALoss.featuresReshapeBack(imProj, N, self.channels_truncate, H, W, self.microBlockSz,self.channelsDiv)
+            imProj = PCALoss.featuresReshapeBack(imProj, N, len(self.s), H, W, self.microBlockSz,self.channelsDiv)
 
         return imProj
 
@@ -67,15 +62,16 @@ class PCALoss(nn.Module):
         cov = torch.matmul(im, im.t()) / im.shape[1]
         # svd
         u, s, _ = torch.svd(cov)
-        if eigenVar < 1:
-            # find index where eigenvalues are more important
-            if not self.channels_truncate:
-                sRatio = torch.cumsum(s, 0) / torch.sum(s)
-                cutIdx = (sRatio >= eigenVar).nonzero()[0]
-                self.channels_truncate = cutIdx
-            # throw unimportant eigenvector
+        if self.channels_truncate:
             u = u[:, :self.channels_truncate]
             s = s[:self.channels_truncate]
+        elif eigenVar < 1:
+            # find index where eigenvalues are more important
+            sRatio = torch.cumsum(s, 0) / torch.sum(s)
+            cutIdx = (sRatio >= eigenVar).nonzero()[0]
+            # throw unimportant eigenvector
+            u = u[:, :cutIdx]
+            s = s[:cutIdx]
 
         return u, s
 

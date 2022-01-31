@@ -7,7 +7,6 @@ from dataset.imagenet import get_subimagenet_dataloader
 
 def build_model_s(opt):
     print("model_s & model_t have same structure but less channels in PCA mode, building model_s......")
-    criterion_kd = nn.ModuleList([])
     channel_list = []
 
     model_t = load_teacher(opt.path_t, opt.n_cls)
@@ -29,7 +28,6 @@ def build_model_s(opt):
         featProj = criterion.projection(feat)
         channeltruncate = featProj.shape[1]
         channel_list.append(channeltruncate)
-        criterion_kd.append(criterion)
     print(f'channel truncate after PCA: {channel_list}')
 
-    return criterion_kd, channel_list
+    return channel_list
