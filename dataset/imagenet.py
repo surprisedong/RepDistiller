@@ -265,9 +265,8 @@ def get_subimagenet_dataloader(datapath,batch_size):
     train_folder = os.path.join(datapath, 'train')
     train_set = datasets.ImageFolder(train_folder, transform=train_transform)
 
-    data_len = 50000
-    rndIdx = random.randint(0, data_len - batch_size)
-    sample = SubsetRandomSampler(np.linspace(rndIdx, rndIdx + batch_size, batch_size + 1, dtype=np.int)[:-1])
+    data_len = 500000
+    sample = SubsetRandomSampler(np.random.choice(data_len, batch_size+1, replace=False)[:-1])
     statloader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False, num_workers=2,
                                             sampler=sample)
     

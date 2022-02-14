@@ -165,7 +165,7 @@ def parse_option():
 
     if opt.distill == 'PCA':
         ## we need to build model_s at first
-        opt.channel_list = build_model_s(opt)
+        opt.channel_list, opt.criterion_kd = build_model_s(opt)
 
     return opt
 
@@ -337,9 +337,7 @@ def main_worker(gpu, ngpus_per_node, opt):
         # classification training
         pass
     elif opt.distill == 'PCA':
-        criterion_kd = nn.ModuleList([])
-        for c in opt.channel_list:
-            criterion_kd.append(PCALoss(eigenVar=opt.eigenVar,attention=opt.attention,channels_truncate=c))
+        criterion_kd = copy.deepcopy(opt.criterion_kd)
     else:
         raise NotImplementedError(opt.distill)
 
