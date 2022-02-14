@@ -131,10 +131,6 @@ class ResNet(nn.Module):
 
         return [bn1, bn2, bn3, bn4]
 
-    def pcat(self,x,eigenVar=1):
-        trans = PCALoss(eigenVar=eigenVar)
-        return trans.projection(x,restore=True)
-
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -151,48 +147,59 @@ class ResNet(nn.Module):
         out = F.relu(out)
         f0 = out
         if (eigenVar < 1):
+            if not hasattr(self,'trans_0'):
+                self.trans_0 = PCALoss(eigenVar=eigenVar)
             if preact:
-                out = self.pcat(f0_pre,eigenVar)
+                out = self.trans_0.projection(f0_pre,restore=True)
                 out = F.relu(out)
             else:
-                out = self.pcat(out,eigenVar)
+                out = self.trans_0.projection(out,restore=True)
 
         out = self.maxpool(out)
         out, f1_pre = self.layer1(out)
         f1 = out
         if (eigenVar < 1):
+            if not hasattr(self,'trans_1'):
+                self.trans_1 = PCALoss(eigenVar=eigenVar)
             if preact:
-                out = self.pcat(f1_pre,eigenVar)
+                out = self.trans_1.projection(f1_pre,restore=True)
                 out = F.relu(out)
             else:
-                out = self.pcat(out,eigenVar)
+                out = self.trans_1.projection(out,restore=True)
 
         out, f2_pre = self.layer2(out)
         f2 = out
         if (eigenVar < 1):
+            if not hasattr(self,'trans_2'):
+                self.trans_2 = PCALoss(eigenVar=eigenVar)
             if preact:
-                out = self.pcat(f2_pre,eigenVar)
+                out = self.trans_2.projection(f2_pre,restore=True)
                 out = F.relu(out)
             else:
-                out = self.pcat(out,eigenVar)
+                out = self.trans_2.projection(out,restore=True)
 
         out, f3_pre = self.layer3(out)
         f3 = out
         if (eigenVar < 1):
+            if not hasattr(self,'trans_3'):
+                self.trans_3 = PCALoss(eigenVar=eigenVar)
             if preact:
-                out = self.pcat(f3_pre,eigenVar)
+                out = self.trans_3.projection(f3_pre,restore=True)
                 out = F.relu(out)
             else:
-                out = self.pcat(out,eigenVar)
+                out = self.trans_3.projection(out,restore=True)
 
         out, f4_pre = self.layer4(out)
         f4 = out
         if (eigenVar < 1):
+            if not hasattr(self,'trans_4'):
+                self.trans_4 = PCALoss(eigenVar=eigenVar)
             if preact:
-                out = self.pcat(f4_pre,eigenVar)
+                out = self.trans_4.projection(f4_pre,restore=True)
                 out = F.relu(out)
             else:
-                out = self.pcat(out,eigenVar)
+                out = self.trans_4.projection(out,restore=True)
+
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         f5 = out
