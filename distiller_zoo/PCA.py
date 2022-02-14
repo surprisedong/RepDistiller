@@ -30,14 +30,15 @@ class PCALoss(nn.Module):
         img = PCALoss.featuresReshape(img, N, C, H, W, self.microBlockSz,self.channelsDiv) # C * (N * H * W)
         img_ori = img
 
+        mn = torch.mean(img, dim=1, keepdim=True)
+        # Centering the data
+        img = img - mn
+
         if self.collectStats:
-            mn = torch.mean(img, dim=1, keepdim=True)
-            # Centering the data
-            img = img - mn
+            print('collect status...')
             self.u, self.s = self.get_projection_matrix(img, self.eigenVar)
-            self.u = self.u.detach()
-            self.s = self.s.detach()
-            #self.collectStats = False ##use same u&s will affect performance 
+            self.collectStats = False ##use same u&s
+            self.channels_truncate = len(self.s)##use same channel number
 
         imProj = torch.matmul(self.u.t(), img_ori)
         if restore:
@@ -62,6 +63,7 @@ class PCALoss(nn.Module):
         cov = torch.matmul(im, im.t()) / im.shape[1]
         # svd
         u, s, _ = torch.svd(cov)
+        assert (u.requires_grad == False and s.requires_grad == False)
         if self.channels_truncate:
             u = u[:, :self.channels_truncate]
             s = s[:self.channels_truncate]
