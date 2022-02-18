@@ -4,6 +4,7 @@ import torch.nn as nn
 from distiller_zoo import PCALoss
 from .util import load_teacher
 from dataset.imagenet import get_subimagenet_dataloader
+from dataset.cifar100 import get_subcifar100_dataloader
 
 def build_model_s(opt):
     print("model_s & model_t have same structure but less channels in PCA mode, building model_s......")
@@ -14,9 +15,11 @@ def build_model_s(opt):
     model_t.eval()
     if opt.dataset == 'imagenet':
         statloader = get_subimagenet_dataloader(datapath= opt.datapath, batch_size=256)
+    elif opt.dataset == 'cifar100':
+        statloader = get_subcifar100_dataloader(batch_size=256)
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(statloader):
-            if opt.model_t.startswith('ResNet'):
+            if opt.model_t.startswith('ResNet') or opt.model_t.startswith('vgg'):
                 feat_t, _ = model_t(inputs, is_feat=True,preact=opt.preact)
                 feat_t = feat_t[:-1]###delete last feature map
             elif opt.model_t.startswith('MobileNet'):
