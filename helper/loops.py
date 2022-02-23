@@ -121,9 +121,9 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
                     crit.u = crit.u.cuda(opt.gpu, non_blocking=True)
 
         # ===================forward=====================
-        feat_s, logit_s = model_s(input, is_feat=True, preact=opt.preact)
+        feat_s, logit_s = model_s(input, is_feat=True, preact=opt.preact, alllayer=opt.alllayer)
         with torch.no_grad():
-            feat_t, logit_t = model_t(input, is_feat=True, preact=opt.preact)
+            feat_t, logit_t = model_t(input, is_feat=True, preact=opt.preact, alllayer=opt.alllayer)
             feat_t = [f.detach() for f in feat_t]
 
         # cls + kl div
@@ -307,7 +307,7 @@ def validate_vanilla(val_loader, model, criterion, opt):
 
 
             # compute output
-            output = model(input, preact = opt.preact, eigenVar = opt.eigenVar)
+            output = model(input)
             loss = criterion(output, target)
 
             # measure accuracy and record loss

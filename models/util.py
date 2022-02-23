@@ -267,6 +267,18 @@ class PoolEmbed(nn.Module):
     def forward(self, x):
         return self.embed(x)
 
+class Sequential_feat(nn.Sequential):
+    def forward(self, input, is_feat=False):
+        feat = []
+        for module in self:
+            input = module(input)
+            feat.append(input)
+            
+        if is_feat:
+            return feat
+        return input
+
+
 
 if __name__ == '__main__':
     import torch

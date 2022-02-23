@@ -4,7 +4,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
+from .util import Sequential_feat
 
 __all__ = [
     'VGG', 'vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn',
@@ -24,6 +24,7 @@ class VGG(nn.Module):
 
     def __init__(self, cfg, batch_norm=False, num_classes=1000):
         super(VGG, self).__init__()
+        self.batch_norm = batch_norm
         self.block0 = self._make_layers(cfg[0], batch_norm, 3)
         self.block1 = self._make_layers(cfg[1], batch_norm, cfg[0][-1])
         self.block2 = self._make_layers(cfg[2], batch_norm, cfg[1][-1])
@@ -61,7 +62,73 @@ class VGG(nn.Module):
         bn4 = self.block4[-1]
         return [bn1, bn2, bn3, bn4]
 
-    def forward(self, x, is_feat=False, preact=False):
+
+    def forward_feat(self,x,preact=False):
+        preatlayer = nn.BatchNorm2d if self.batch_norm else nn.Conv2d
+        feat = []
+        feat_preact = []
+        h = x.shape[2]
+        x = self.block0(x,is_feat=True)
+        for i,module in enumerate(self.block0):
+            if isinstance(module,preatlayer):
+                feat_preact.append(x[i])
+            elif isinstance(module,nn.ReLU):
+                feat.append(x[i])
+        x = F.relu(x[-1])
+        feat.append(x)
+
+        x = self.pool0(x)
+        x = self.block1(x,is_feat=True)
+        for i,module in enumerate(self.block1):
+            if isinstance(module,preatlayer):
+                feat_preact.append(x[i])
+            elif isinstance(module,nn.ReLU):
+                feat.append(x[i])
+        x = F.relu(x[-1])
+        feat.append(x)
+
+        x = self.pool1(x)
+        x = self.block2(x,is_feat=True)
+        for i,module in enumerate(self.block2):
+            if isinstance(module,preatlayer):
+                feat_preact.append(x[i])
+            elif isinstance(module,nn.ReLU):
+                feat.append(x[i])
+        x = F.relu(x[-1])
+        feat.append(x)
+
+        x = self.pool2(x)
+        x = self.block3(x,is_feat=True)
+        for i,module in enumerate(self.block3):
+            if isinstance(module,preatlayer):
+                feat_preact.append(x[i])
+            elif isinstance(module,nn.ReLU):
+                feat.append(x[i])
+        x = F.relu(x[-1])
+        feat.append(x)
+
+        if h == 64:
+            x = self.pool3(x)
+        x = self.block4(x,is_feat=True)
+        for i,module in enumerate(self.block4):
+            if isinstance(module,preatlayer):
+                feat_preact.append(x[i])
+            elif isinstance(module,nn.ReLU):
+                feat.append(x[i])
+        x = F.relu(x[-1])
+        feat.append(x)
+        x = self.pool4(x)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        assert len(feat)==len(feat_preact)
+        if preact:
+            return feat_preact,x
+        return feat,x
+        
+
+    def forward(self, x, is_feat=False, preact=False, alllayer=False):
+        if alllayer:
+            return self.forward_feat(x,preact=preact)
         h = x.shape[2]
         x = F.relu(self.block0(x))
         f0 = x
@@ -113,7 +180,7 @@ class VGG(nn.Module):
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
         layers = layers[:-1]
-        return nn.Sequential(*layers)
+        return Sequential_feat(*layers)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -130,6 +197,126 @@ class VGG(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
+
+class VGGLiner(VGG):
+    def __init__(self, cfg, batch_norm=False, num_classes=1000):
+        super().__init__(cfg, batch_norm, num_classes)
+
+
+    def forward_feat(self,x):
+            preatlayer = nn.BatchNorm2d if self.batch_norm else nn.Conv2d
+            feat_preact = []
+            h = x.shape[2]
+            x = self.block0(x,is_feat=True)
+            for i,module in enumerate(self.block0):
+                if isinstance(module,preatlayer):
+                    feat_preact.append(x[i])
+
+            x = self.pool0(x[-1])
+            x = self.block1(x,is_feat=True)
+            for i,module in enumerate(self.block1):
+                if isinstance(module,preatlayer):
+                    feat_preact.append(x[i])
+
+            x = self.pool1(x[-1])
+            x = self.block2(x,is_feat=True)
+            for i,module in enumerate(self.block2):
+                if isinstance(module,preatlayer):
+                    feat_preact.append(x[i])
+
+            x = self.pool2(x[-1])
+            x = self.block3(x,is_feat=True)
+            for i,module in enumerate(self.block3):
+                if isinstance(module,preatlayer):
+                    feat_preact.append(x[i])
+
+            if h == 64:
+                x = self.pool3(x[-1])
+            else:
+                x = x[-1]
+            x = self.block4(x,is_feat=True)
+            for i,module in enumerate(self.block4):
+                if isinstance(module,preatlayer):
+                    feat_preact.append(x[i])
+
+            x = self.pool4(x[-1])
+            x = x.view(x.size(0), -1)
+            x = self.classifier(x)
+
+            return feat_preact,x
+
+    
+    def forward(self, x, is_feat=False, preact=False, alllayer=False):
+        if alllayer:
+            return self.forward_feat(x)
+        h = x.shape[2]
+        x = self.block0(x)
+        f0 = x
+        x = self.pool0(x)
+        x = self.block1(x)
+        f1_pre = x
+        f1 = x
+        x = self.pool1(x)
+        x = self.block2(x)
+        f2_pre = x
+        f2 = x
+        x = self.pool2(x)
+        x = self.block3(x)
+        f3_pre = x
+        f3 = x
+        if h == 64:
+            x = self.pool3(x)
+        x = self.block4(x)
+        f4_pre = x
+        f4 = x
+        x = self.pool4(x)
+        x = x.view(x.size(0), -1)
+        f5 = x
+        x = self.classifier(x)
+
+        if is_feat:
+            if preact:
+                return [f0, f1_pre, f2_pre, f3_pre, f4_pre, f5], x
+            else:
+                return [f0, f1, f2, f3, f4, f5], x
+        else:
+            return x
+
+
+    @staticmethod
+    def _make_layers(cfg, batch_norm=False, in_channels=3):
+        layers = []
+        for v in cfg:
+            if v == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v)]
+                else:
+                    layers += [conv2d]
+                in_channels = v
+        
+        return Sequential_feat(*layers)
+    
+class VGGLinerPCA(VGGLiner):
+    def __init__(self, cfg, batch_norm=False, num_classes=1000,num_channels=[]):
+        for item in cfg:
+            for i in range(len(item)):
+                item[i] = num_channels.pop(0)
+        print(f"vgg cfg:{cfg}")
+
+        super().__init__(cfg, batch_norm, num_classes)
+        self.classifier = nn.Linear(cfg[-1][-1], num_classes)
+
+class VGGPCA(VGG):
+    def __init__(self, cfg, batch_norm=False, num_classes=1000,num_channels=[]):
+        for item in cfg:
+            for i in range(len(item)):
+                item[i] = num_channels.pop(0)
+        print(f"vgg cfg:{cfg}")
+        super().__init__(cfg, batch_norm, num_classes)
+        self.classifier = nn.Linear(cfg[-1][-1], num_classes)
 
 cfg = {
     'A': [[64], [128], [256, 256], [512, 512], [512, 512]],
@@ -202,6 +389,20 @@ def vgg16_bn(**kwargs):
     model = VGG(cfg['D'], batch_norm=True, **kwargs)
     return model
 
+def vgg16_bnPCA(**kwargs):
+    """VGG 16-layer model (configuration "D") with batch normalization"""
+    model = VGGPCA(cfg['D'], batch_norm=True, **kwargs)
+    return model
+
+def vgg16liner_bn(**kwargs):
+    """VGG 16-layer model (configuration "D") with batch normalization"""
+    model = VGGLiner(cfg['D'], batch_norm=True, **kwargs)
+    return model
+
+def vgg16liner_bnPCA(**kwargs):
+    """VGG 16-layer model (configuration "D") with batch normalization"""
+    model = VGGLinerPCA(cfg['D'], batch_norm=True, **kwargs)
+    return model
 
 def vgg19(**kwargs):
     """VGG 19-layer model (configuration "E")

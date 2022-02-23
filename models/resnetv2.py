@@ -7,7 +7,7 @@ Reference:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from distiller_zoo import PCALoss
+from .util import Sequential_feat
 
 
 class BasicBlock(nn.Module):
@@ -77,10 +77,14 @@ class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.in_planes = 64
-
-        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(self.in_planes)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        if num_classes == 100:
+            self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+            self.bn1 = nn.BatchNorm2d(self.in_planes)
+            self.maxpool = nn.Sequential()
+        elif num_classes == 1000:
+            self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
+            self.bn1 = nn.BatchNorm2d(self.in_planes)
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
@@ -139,67 +143,54 @@ class ResNet(nn.Module):
             stride = strides[i]
             layers.append(block(self.in_planes, planes, stride, i == num_blocks - 1))
             self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
+        return Sequential_feat(*layers)
 
-    def forward(self, x, is_feat=False, preact=False, eigenVar=1):
+    def forward_feat(self,x):
+        feat = []
+        out = self.bn1(self.conv1(x))
+        out = F.relu(out)
+        f0 = out
+        feat.append(f0)
+        out = self.maxpool(out)
+        out = self.layer1(out,is_feat=True)
+        for idx,block in enumerate(self.layer1):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+        
+        out = self.layer2(out[-1][0],is_feat=True)
+        for idx,block in enumerate(self.layer2):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+        
+        out = self.layer3(out[-1][0],is_feat=True)
+        for idx,block in enumerate(self.layer3):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+
+        out = self.layer4(out[-1][0],is_feat=True)
+        for idx,block in enumerate(self.layer4):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+
+        out = self.avgpool(out[-1][0])
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+
+        return feat,out
+
+
+    def forward(self, x, is_feat=False, preact=False,alllayer=False):
+        if alllayer:
+            return self.forward_feat(x)
         out = self.bn1(self.conv1(x))
         f0_pre = out
         out = F.relu(out)
         f0 = out
-        if (eigenVar < 1):
-            if not hasattr(self,'trans_0'):
-                self.trans_0 = PCALoss(eigenVar=eigenVar)
-            if preact:
-                out = self.trans_0.projection(f0_pre,restore=True)
-                out = F.relu(out)
-            else:
-                out = self.trans_0.projection(out,restore=True)
-
         out = self.maxpool(out)
         out, f1_pre = self.layer1(out)
         f1 = out
-        if (eigenVar < 1):
-            if not hasattr(self,'trans_1'):
-                self.trans_1 = PCALoss(eigenVar=eigenVar)
-            if preact:
-                out = self.trans_1.projection(f1_pre,restore=True)
-                out = F.relu(out)
-            else:
-                out = self.trans_1.projection(out,restore=True)
-
         out, f2_pre = self.layer2(out)
         f2 = out
-        if (eigenVar < 1):
-            if not hasattr(self,'trans_2'):
-                self.trans_2 = PCALoss(eigenVar=eigenVar)
-            if preact:
-                out = self.trans_2.projection(f2_pre,restore=True)
-                out = F.relu(out)
-            else:
-                out = self.trans_2.projection(out,restore=True)
-
         out, f3_pre = self.layer3(out)
         f3 = out
-        if (eigenVar < 1):
-            if not hasattr(self,'trans_3'):
-                self.trans_3 = PCALoss(eigenVar=eigenVar)
-            if preact:
-                out = self.trans_3.projection(f3_pre,restore=True)
-                out = F.relu(out)
-            else:
-                out = self.trans_3.projection(out,restore=True)
-
         out, f4_pre = self.layer4(out)
         f4 = out
-        if (eigenVar < 1):
-            if not hasattr(self,'trans_4'):
-                self.trans_4 = PCALoss(eigenVar=eigenVar)
-            if preact:
-                out = self.trans_4.projection(f4_pre,restore=True)
-                out = F.relu(out)
-            else:
-                out = self.trans_4.projection(out,restore=True)
-
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         f5 = out
@@ -215,35 +206,42 @@ class ResNet(nn.Module):
 
 class ResNetPCA(ResNet):
     def __init__(self, block, num_blocks, num_channels=[64,64,128,256,512], num_classes=10, zero_init_residual=False):
-        super(ResNetPCA, self).__init__(block=block,num_blocks=num_blocks)
+        super(ResNet,self).__init__()
+        num_channels_ = []
+        num_channels_.append(num_channels.pop(0))
+        for item in num_blocks:
+            num_channels_.append(num_channels[:item])
+            del num_channels[:item]
+        num_channels = num_channels_
+        print(f'resnet num_channels:{num_channels}')
+
         self.in_planes = num_channels[0]
-        
-        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(num_channels[0])
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        if num_classes == 100:
+            self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+            self.bn1 = nn.BatchNorm2d(self.in_planes)
+            self.maxpool = nn.Sequential()
+        elif num_classes == 1000:
+            self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
+            self.bn1 = nn.BatchNorm2d(self.in_planes)
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, num_channels[1], num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, num_channels[2], num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, num_channels[3], num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, num_channels[4], num_blocks[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.linear = nn.Linear(num_channels[4] * block.expansion, num_classes)
+        self.linear = nn.Linear(num_channels[4][-1] * block.expansion, num_classes)
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
 
-        # Zero-initialize the last BN in each residual branch,
-        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, Bottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)
-                elif isinstance(m, BasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)
+    
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for i in range(num_blocks):
+            stride = strides[i]
+            layers.append(block(self.in_planes, planes[i], stride, i == num_blocks - 1))
+            self.in_planes = planes[i]*block.expansion
+        return Sequential_feat(*layers)
+
 
 
 

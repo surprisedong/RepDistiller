@@ -46,7 +46,7 @@ def parse_option():
     parser.add_argument('--model', type=str, default='resnet110',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'ResNet34','ResNet50', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
-                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
+                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'vgg16linerbn',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2', ])
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet'], help='dataset')
     parser.add_argument('--datapath', type=str, default='', help='path of dataset')
@@ -60,10 +60,6 @@ def parse_option():
 
     parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-    
-    ## pca transform test
-    parser.add_argument('--eigenVar', type=float, default=1, help='eigenVar ratio, i.e. trancate threshold in PCA, if < 1, transform feature map')
-    parser.add_argument('--preact', dest='preact', action='store_true',help='learning feature before activation layer')
 
     ### distributed training
     parser.add_argument('--gpu', default=None, type=int,
@@ -193,11 +189,7 @@ def main_worker(gpu, ngpus_per_node, opt):
         model = model.cuda(opt.gpu)
     else:
         # DataParallel will divide and allocate batch_size to all available GPUs
-        if opt.model.startswith('alexnet') or opt.model.startswith('vgg'):
-            model.features = torch.nn.DataParallel(model.features)
-            model.cuda()
-        else:
-            model = torch.nn.DataParallel(model).cuda()
+        model = torch.nn.DataParallel(model).cuda()
    
     criterion = nn.CrossEntropyLoss().cuda(opt.gpu)
     # optimizer
@@ -230,7 +222,7 @@ def main_worker(gpu, ngpus_per_node, opt):
 
     # dataloader
     if opt.dataset == 'cifar100':
-        train_loader, val_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers)
+        train_loader, val_loader, train_sampler = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers)
     elif opt.dataset == 'imagenet':
         train_loader, val_loader, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers)
     else:

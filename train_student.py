@@ -66,7 +66,7 @@ def parse_option():
     parser.add_argument('--model_s', type=str, default='resnet8',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
-                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50','ResNet50PCA','ResNet34PCA',
+                                 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50','ResNet50PCA','ResNet34PCA','vgg16linerbnPCA','vgg16PCA',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2','MobileNetV2PCA'])
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
 
@@ -98,6 +98,7 @@ def parse_option():
     parser.add_argument('--attention', dest='attention', action='store_true',help='add attention in pca loss')
     parser.add_argument('--eigenVar', default=0.99, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
     parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
+    parser.add_argument('--alllayer', action='store_true',help='output all mid feature , only use in PCA distillation')
 
     
     ### distributed training
