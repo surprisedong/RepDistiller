@@ -39,6 +39,8 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
         # ===================backward=====================
         optimizer.zero_grad()
         loss.backward()
+        if opt.clip_grad:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
         optimizer.step()
 
         # ===================meters=====================
@@ -191,7 +193,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
         elif opt.distill == 'PCA':
             g_s = [feat_s[idx] for idx in opt.pcalayer]
             g_t = [feat_t[idx] for idx in opt.pcalayer]
-            criterion_kd_ = [criterion_kd[idx].eval() for idx in opt.pcalayer]
+            criterion_kd_ = [criterion_kd[idx] for idx in opt.pcalayer]
             loss_group = [c(f_s, f_t) for f_s, f_t, c in zip(g_s, g_t, criterion_kd_)]
             loss_kd = sum(loss_group)
 

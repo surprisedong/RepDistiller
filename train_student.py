@@ -95,7 +95,7 @@ def parse_option():
     parser.add_argument('--hint_layer', default=2, type=int, choices=[0, 1, 2, 3, 4])
 
     # PCA distillation 
-    parser.add_argument('--attention', dest='attention', action='store_true',help='add attention in pca loss')
+    parser.add_argument('--pca_s', dest='pca_s', action='store_true',help='add pca project on student in pca loss')
     parser.add_argument('--eigenVar', default=0.99, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
     parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
     parser.add_argument('--alllayer', action='store_true',help='output all mid feature , only use in PCA distillation')

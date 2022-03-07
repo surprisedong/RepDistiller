@@ -41,13 +41,15 @@ def parse_option():
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+    parser.add_argument('--CosineAnnealingLR', dest='CosineAnnealingLR', action='store_true',help='use CosineAnnealingLR in learning rate')
+    parser.add_argument('--clip_grad', dest='clip_grad', action='store_true',help='use clip_grad when training backward')
 
     # dataset
     parser.add_argument('--model', type=str, default='resnet110',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'ResNet34','ResNet50', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'vgg16linerbn',
-                                 'MobileNetV2', 'ShuffleV1', 'ShuffleV2', ])
+                                 'MobileNetV2', 'ShuffleV1', 'ShuffleV2', 'vitbase'])
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet'], help='dataset')
     parser.add_argument('--datapath', type=str, default='', help='path of dataset')
 
@@ -197,6 +199,11 @@ def main_worker(gpu, ngpus_per_node, opt):
                           lr=opt.learning_rate,
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
+    if opt.CosineAnnealingLR:
+        warm_epoch = 10
+        lamda1 = lambda cur_epoch: cur_epoch / warm_epoch
+        opt.scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer,lr_lambda=lamda1)
+        opt.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=5)
 
     # optionally resume from a checkpoint
     if opt.resume:
@@ -222,7 +229,7 @@ def main_worker(gpu, ngpus_per_node, opt):
 
     # dataloader
     if opt.dataset == 'cifar100':
-        train_loader, val_loader, train_sampler = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers)
+        train_loader, val_loader, train_sampler = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,distributed=opt.distributed)
     elif opt.dataset == 'imagenet':
         train_loader, val_loader, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers)
     else:
@@ -241,11 +248,17 @@ def main_worker(gpu, ngpus_per_node, opt):
     for epoch in range(opt.start_epoch+1, opt.epochs + 1):
         if opt.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(epoch, opt, optimizer)
+        if not opt.CosineAnnealingLR:
+            adjust_learning_rate(epoch, opt, optimizer)
         print("==> training...")
 
         time1 = time.time()
         train_acc, train_loss = train(epoch, train_loader, model, criterion, optimizer, opt)
+        if opt.CosineAnnealingLR:
+            if epoch <= warm_epoch:
+                opt.scheduler1.step()
+            else:
+                opt.scheduler2.step()
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 
@@ -265,7 +278,6 @@ def main_worker(gpu, ngpus_per_node, opt):
                 'epoch': epoch,
                 'model': model.state_dict(),
                 'accuracy': best_acc,
-                'optimizer': optimizer.state_dict(),
             }
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model))
             print('saving the best model!')
