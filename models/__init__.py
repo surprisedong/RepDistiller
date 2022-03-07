@@ -6,7 +6,7 @@ from .vgg import vgg19_bn, vgg16_bn, vgg13_bn, vgg11_bn, vgg8_bn,vgg16liner_bn,v
 from .mobilenetv2 import *
 from .ShuffleNetv1 import ShuffleV1
 from .ShuffleNetv2 import ShuffleV2
-from .vit import vitnet
+from .vit import vit_base
 
 model_dict = {
     'resnet8': resnet8,
@@ -38,5 +38,5 @@ model_dict = {
     'ShuffleV2': ShuffleV2,
     'ResNet50PCA':ResNet50PCA,
     'ResNet34PCA':ResNet34PCA,
-    'vit':vitnet
+    'vitbase':vit_base
 }
