@@ -27,7 +27,7 @@ def build_model_s(opt):
                 assert False, 'unsupported model right now'
     
     for feat in feat_t:
-        criterion = PCALoss(eigenVar=opt.eigenVar,attention=opt.attention)
+        criterion = PCALoss(eigenVar=opt.eigenVar,pca_s=opt.pca_s)
         featProj = criterion.projection(feat)
         channeltruncate = featProj.shape[1]
         channel_list.append(channeltruncate)

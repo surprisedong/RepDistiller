@@ -3,10 +3,10 @@ import torch
 from sklearn.decomposition import KernelPCA,PCA
 
 class PCALoss(nn.Module):
-    def __init__(self,eigenVar=1,attention=False,microBlockSz=1,channelsDiv=1,channels_truncate=None) -> None:
+    def __init__(self,eigenVar=1,pca_s=False,microBlockSz=1,channelsDiv=1,channels_truncate=None) -> None:
         super(PCALoss, self).__init__()
         self.eigenVar = eigenVar
-        self.attention = attention
+        self.pca_s = pca_s
         self.microBlockSz = microBlockSz
         self.channelsDiv = channelsDiv
         self.collectStats = True
@@ -18,10 +18,11 @@ class PCALoss(nn.Module):
         f_t = self.projection(f_t)
         assert f_t.shape == f_s.shape
 
-        if self.attention:
-            return sum([(self.s[c] / torch.sum(self.s) * self.crit(f_s[:,c,:,:],f_t[:,c,:,:])) for c in range(len(self.s))])
-        else:
-            return self.crit(f_s,f_t)
+        if self.pca_s:
+            temp = PCALoss(channels_truncate=self.channels_truncate)
+            f_s =  temp.projection(f_s)
+        
+        return self.crit(f_s,f_t)
             
 
 
@@ -39,6 +40,7 @@ class PCALoss(nn.Module):
             self.u, self.s = self.get_projection_matrix(img, self.eigenVar)
             self.collectStats = False ##use same u&s
             self.channels_truncate = len(self.s)##use same channel number
+            print(self.channels_truncate)
 
         imProj = torch.matmul(self.u.t(), img_ori)
         if restore:
@@ -63,7 +65,8 @@ class PCALoss(nn.Module):
         cov = torch.matmul(im, im.t()) / im.shape[1]
         # svd
         u, s, _ = torch.svd(cov)
-        assert (u.requires_grad == False and s.requires_grad == False)
+        u.detach_()
+        s.detach_()
         if self.channels_truncate:
             u = u[:, :self.channels_truncate]
             s = s[:self.channels_truncate]
@@ -112,26 +115,11 @@ class PCALoss(nn.Module):
         input = input.contiguous().view(N, C, H, W)  # N x C x H x W
 
         return input
-
-    
-
-class KPCALoss(PCALoss):
-    def __init__(self, eigenVar=1, attention=False, microBlockSz=1, channelsDiv=1) -> None:
-        super().__init__(eigenVar, attention, microBlockSz, channelsDiv)
-
-
-    def projection(self, img):
-        N, C, H, W = img.shape  # N x C x H x W
-        img = KPCALoss.featuresReshape(img, N, C, H, W, self.microBlockSz,self.channelsDiv) # C * (N * H * W)
-        img = img.t()
-        if self.collectStats:
-            scikit_kpca = KernelPCA(kernel='rbf', gamma=15)
-            img_kpca = scikit_kpca.fit_transform(img)
             
 
 
 
 
 
-        
+
 
