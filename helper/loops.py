@@ -121,6 +121,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
             if opt.distill in ['PCA']:
                 for crit in criterion_kd:
                     crit.u = crit.u.cuda(opt.gpu, non_blocking=True)
+                    crit.s = crit.s.cuda(opt.gpu, non_blocking=True)
 
         # ===================forward=====================
         feat_s, logit_s = model_s(input, is_feat=True, preact=opt.preact, alllayer=opt.alllayer)

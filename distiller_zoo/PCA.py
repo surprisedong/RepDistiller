@@ -3,30 +3,57 @@ import torch
 from sklearn.decomposition import KernelPCA,PCA
 
 class PCALoss(nn.Module):
-    def __init__(self,eigenVar=1,pca_s=False,microBlockSz=1,channelsDiv=1,channels_truncate=None) -> None:
+    def __init__(self,eigenVar=1,crit_type='mse',loss_type='raw',microBlockSz=1,channelsDiv=1,channels_truncate=None) -> None:
         super(PCALoss, self).__init__()
         self.eigenVar = eigenVar
-        self.pca_s = pca_s
+
         self.microBlockSz = microBlockSz
         self.channelsDiv = channelsDiv
         self.collectStats = True
         self.channels_truncate = channels_truncate
-        self.crit = nn.MSELoss()
+        self.loss_type = loss_type
+        self.crit_type = crit_type
+        if self.crit_type=='mse':
+            self.crit = nn.MSELoss()
+        elif self.crit_type=='cosine':
+            self.crit = torch.nn.CosineEmbeddingLoss()
+        else:
+            assert False, 'unknown crit type'
     
 
     def forward(self,f_s,f_t):
-        f_t = self.projection(f_t)
-        assert f_t.shape == f_s.shape
-
-        if self.pca_s:
+        if self.loss_type=='raw':
+            with torch.no_grad():
+                f_t = self.projection(f_t)
+        elif self.loss_type=='pca_s':
+            with torch.no_grad():
+                f_t = self.projection(f_t)
             temp = PCALoss(channels_truncate=self.channels_truncate)
             f_s =  temp.projection(f_s)
+        elif self.loss_type=='mahalanobis_distance':
+            with torch.no_grad():
+                f_t = self.projection(f_t,center=True)
+                f_t /= torch.sqrt(self.s).unsqueeze(-1).unsqueeze(-1)
+            temp = PCALoss(channels_truncate=self.channels_truncate)
+            f_s =  temp.projection(f_s,center=True)
+            f_s /= torch.sqrt(temp.s).unsqueeze(-1).unsqueeze(-1)
+        else:
+            assert False, 'unknown loss type'
         
-        return self.crit(f_s,f_t)
+        assert f_t.shape == f_s.shape
+        if self.crit_type=='mse':
+            return self.crit(f_s,f_t)
+        elif self.crit_type=='cosine':
+            batch = f_t.shape[0]
+            f_t = f_t.view(batch,-1)
+            f_s = f_s.view(batch,-1)
+            target = torch.tensor([1]*batch).to(f_s)
+            return self.crit(f_s,f_t,target)
+        
             
 
 
-    def projection(self, img, restore=False):
+    def projection(self, img, center=False, restore=False):
         N, C, H, W = img.shape  # N x C x H x W
         img = PCALoss.featuresReshape(img, N, C, H, W, self.microBlockSz,self.channelsDiv) # C * (N * H * W)
         img_ori = img
@@ -40,9 +67,8 @@ class PCALoss(nn.Module):
             self.u, self.s = self.get_projection_matrix(img, self.eigenVar)
             self.collectStats = False ##use same u&s
             self.channels_truncate = len(self.s)##use same channel number
-            print(self.channels_truncate)
 
-        imProj = torch.matmul(self.u.t(), img_ori)
+        imProj = torch.matmul(self.u.t(), img) if center else torch.matmul(self.u.t(), img_ori)
         if restore:
             imProj = torch.matmul(self.u, imProj) ##restore ori img
 
@@ -115,7 +141,7 @@ class PCALoss(nn.Module):
         input = input.contiguous().view(N, C, H, W)  # N x C x H x W
 
         return input
-            
+
 
 
 
