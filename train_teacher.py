@@ -14,6 +14,7 @@ import torch.backends.cudnn as cudnn
 from models import model_dict
 
 from dataset.cifar100 import get_cifar100_dataloaders
+from dataset.cifar10 import get_cifar10_dataloaders
 from dataset.imagenet import get_imagenet_dataloader
 
 from helper.util import adjust_learning_rate, accuracy, AverageMeter
@@ -50,7 +51,7 @@ def parse_option():
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'vgg16linerbn',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2', 'vitbase'])
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet'], help='dataset')
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet','cifar10'], help='dataset')
     parser.add_argument('--datapath', type=str, default='', help='path of dataset')
 
     parser.add_argument('-t', '--trial', type=int, default=0, help='the experiment id')
@@ -117,7 +118,8 @@ def parse_option():
         for key, value in vars(opt).items():
             f.write('%s:%s\n'%(key, value))
             print(key, value)
-
+    num_cls_dict = {'cifar10':10,'cifar100':100,'imagenet':1000}
+    opt.n_cls = num_cls_dict[opt.dataset]
 
     return opt
 
@@ -148,7 +150,6 @@ def main():
 def main_worker(gpu, ngpus_per_node, opt):
     best_acc = 0
     opt.gpu = gpu
-    n_cls = 100 if opt.dataset == 'cifar100' else 1000
 
     if opt.gpu is not None:
         print("Use GPU: {} for training".format(opt.gpu))
@@ -164,7 +165,7 @@ def main_worker(gpu, ngpus_per_node, opt):
         dist.init_process_group(backend=opt.dist_backend, init_method=opt.dist_url,
                                 world_size=opt.world_size, rank=opt.rank)
     # model
-    model = model_dict[opt.model](num_classes=n_cls)
+    model = model_dict[opt.model](num_classes=opt.n_cls)
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -230,6 +231,8 @@ def main_worker(gpu, ngpus_per_node, opt):
     # dataloader
     if opt.dataset == 'cifar100':
         train_loader, val_loader, train_sampler = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,distributed=opt.distributed)
+    if opt.dataset == 'cifar10':
+        train_loader, val_loader, train_sampler = get_cifar10_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,distributed=opt.distributed)
     elif opt.dataset == 'imagenet':
         train_loader, val_loader, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers)
     else:

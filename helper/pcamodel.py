@@ -5,6 +5,7 @@ from distiller_zoo import PCALoss
 from .util import load_teacher
 from dataset.imagenet import get_subimagenet_dataloader
 from dataset.cifar100 import get_subcifar100_dataloader
+from dataset.cifar10 import get_subcifar10_dataloader
 
 def build_model_s(opt):
     print("model_s & model_t have same structure but less channels in PCA mode, building model_s......")
@@ -17,6 +18,8 @@ def build_model_s(opt):
         statloader = get_subimagenet_dataloader(datapath= opt.datapath, batch_size=256)
     elif opt.dataset == 'cifar100':
         statloader = get_subcifar100_dataloader(batch_size=256)
+    elif opt.dataset == 'cifar10':
+        statloader = get_subcifar10_dataloader(batch_size=256)
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(statloader):
             if opt.model_t.startswith('vgg'):

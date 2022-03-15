@@ -22,6 +22,7 @@ from models.util import Embed, ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
+from dataset.cifar10 import get_cifar10_dataloaders, get_cifar10_dataloaders_sample
 from dataset.imagenet import get_imagenet_dataloader
 from helper.util import adjust_learning_rate,get_teacher_name,load_teacher
 
@@ -59,7 +60,7 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 
     # dataset
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet'], help='dataset')
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet','cifar10'], help='dataset')
     parser.add_argument('--datapath', type=str, default='', help='path of dataset')
 
     # model
@@ -163,7 +164,8 @@ def parse_option():
             f.write('%s:%s\n'%(key, value))
             print(key, value)
         
-    opt.n_cls = 100 if opt.dataset == 'cifar100' else 1000
+    num_cls_dict = {'cifar10':10,'cifar100':100,'imagenet':1000}
+    opt.n_cls = num_cls_dict[opt.dataset]
 
     if opt.distill == 'PCA':
         ## we need to build model_s at first
@@ -233,6 +235,17 @@ def main_worker(gpu, ngpus_per_node, opt):
                                                                         num_workers=opt.num_workers,
                                                                         is_instance=True,
                                                                         distributed = opt.distributed)
+    if opt.dataset == 'cifar10':
+        if opt.distill in ['crd']:
+            train_loader, val_loader, n_data = get_cifar10_dataloaders_sample(batch_size=opt.batch_size,
+                                                                               num_workers=opt.num_workers,
+                                                                               k=opt.nce_k,
+                                                                               mode=opt.mode)
+        else:
+            train_loader, val_loader, n_data, train_sampler = get_cifar10_dataloaders(batch_size=opt.batch_size,
+                                                                        num_workers=opt.num_workers,
+                                                                        is_instance=True,
+                                                                        distributed = opt.distributed)
     elif opt.dataset == 'imagenet':
         assert not opt.distill in ['crd'],"unsupported now"
         train_loader, val_loader, n_data, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers,is_instance=True)
@@ -243,7 +256,7 @@ def main_worker(gpu, ngpus_per_node, opt):
     model_t = load_teacher(opt.path_t, opt.n_cls)
     model_s = model_dict[opt.model_t+'PCA'](num_channels=opt.channel_list, num_classes=opt.n_cls) \
         if opt.distill == 'PCA' else model_dict[opt.model_s](num_classes=opt.n_cls)
-    data = torch.randn(2, 3, 32, 32) if opt.dataset == 'cifar100' else torch.randn(2, 3, 224, 224)
+    data = torch.randn(2, 3, 32, 32) if opt.dataset in ['cifar100','cifar10'] else torch.randn(2, 3, 224, 224)
 
     model_t.eval()
     model_s.eval()
