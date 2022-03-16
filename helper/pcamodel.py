@@ -17,17 +17,19 @@ def build_model_s(opt):
     if opt.dataset == 'imagenet':
         statloader = get_subimagenet_dataloader(datapath= opt.datapath, batch_size=256)
     elif opt.dataset == 'cifar100':
-        statloader = get_subcifar100_dataloader(batch_size=256)
+        statloader = get_subcifar100_dataloader(batch_size=2048)
     elif opt.dataset == 'cifar10':
-        statloader = get_subcifar10_dataloader(batch_size=256)
+        statloader = get_subcifar10_dataloader(batch_size=2048)
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(statloader):
-            if opt.model_t.startswith('vgg'):
+            if opt.model_t.lower().startswith('vgg'):
                 feat_t,_ = model_t(inputs, is_feat=True,preact=opt.preact,alllayer=opt.alllayer)
-            elif opt.model_t.startswith('ResNet'):
+            elif opt.model_t.lower().startswith('resnet'):
+                feat_t,_ = model_t(inputs, is_feat=True,preact=opt.preact,alllayer=opt.alllayer)
+            elif opt.model_t.lower().startswith('mobilenet'):
                 feat_t,_ = model_t(inputs, is_feat=True,preact=opt.preact,alllayer=opt.alllayer)
             else:
-                assert False, 'unsupported model right now'
+                assert False, f'{opt.model_t} is unsupported model right now'
     
     for feat in feat_t:
         criterion = PCALoss(eigenVar=opt.eigenVar,crit_type=opt.crit_type,loss_type=opt.loss_type)

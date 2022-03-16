@@ -253,7 +253,7 @@ def get_subcifar100_dataloader(batch_size=256):
                                     transform=train_transform)
 
 
-    data_len = 1000
+    data_len = 50000
     sample = SubsetRandomSampler(np.random.choice(data_len, batch_size+1, replace=False)[:-1])
     statloader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False, num_workers=2,
                                             sampler=sample)
