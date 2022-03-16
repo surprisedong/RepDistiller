@@ -6,6 +6,7 @@ MobileNetV2 implementation used in
 import torch
 import torch.nn as nn
 import math
+from .util import Sequential_feat
 
 __all__ = ['mobilenetv2_T_w', 'mobile_half']
 
@@ -78,12 +79,13 @@ class MobileNetV2(nn.Module):
                  remove_avg=False):
         super(MobileNetV2, self).__init__()
         self.remove_avg = remove_avg
+        stride_ = 1 if feature_dim in [10,100] else 2 ## cifar input size is 32,using stride 2 will perform bad
 
         # setting of inverted residual blocks
         self.interverted_residual_setting = [
             # t, c, n, s
             [1, 16, 1, 1],
-            [T, 24, 2, 2],
+            [T, 24, 2, stride_],
             [T, 32, 3, 2],
             [T, 64, 4, 2],
             [T, 96, 3, 1],
@@ -93,7 +95,7 @@ class MobileNetV2(nn.Module):
 
         # building first layer
         input_channel = int(32 * width_mult)
-        self.conv1 = conv_bn(3, input_channel, 2)
+        self.conv1 = conv_bn(3, input_channel, stride_)
 
         # building inverted residual blocks
         self.blocks = nn.ModuleList([])
@@ -106,20 +108,19 @@ class MobileNetV2(nn.Module):
                     InvertedResidual(input_channel, output_channel, stride, t)
                 )
                 input_channel = output_channel
-            self.blocks.append(nn.Sequential(*layers))
+            self.blocks.append(Sequential_feat(*layers))
 
         self.last_channel = int(1280 * width_mult) if width_mult > 1.0 else 1280
         self.conv2 = conv_1x1_bn(input_channel, self.last_channel)
 
         # building classifier
         self.classifier = nn.Sequential(
-            # nn.Dropout(0.5),
+            nn.Dropout(0.2),
             nn.Linear(self.last_channel, feature_dim),
         )
 
 
         self._initialize_weights()
-        print(T, width_mult)
 
     def get_bn_before_relu(self):
         bn1 = self.blocks[1][-1].conv[-1]
@@ -134,7 +135,40 @@ class MobileNetV2(nn.Module):
         feat_m.append(self.blocks)
         return feat_m
 
-    def forward(self, x, is_feat=False, preact=False):
+    def forward_feat(self,x,preact=False):
+        feat = []
+        out = self.conv1(x)
+        feat.append(out)
+
+        out = self.blocks[0](out,is_feat=True)
+        feat.extend(out)
+        out = self.blocks[1](out[-1],is_feat=True)
+        feat.extend(out)
+        out = self.blocks[2](out[-1],is_feat=True)
+        feat.extend(out)
+        out = self.blocks[3](out[-1],is_feat=True)
+        feat.extend(out)
+        out = self.blocks[4](out[-1],is_feat=True)
+        feat.extend(out)
+        out = self.blocks[5](out[-1],is_feat=True)
+        feat.extend(out)
+        out = self.blocks[6](out[-1],is_feat=True)
+        feat.extend(out)
+
+        out = self.conv2(out[-1])
+        feat.append(out)
+
+        if not self.remove_avg:
+            out = nn.functional.adaptive_avg_pool2d(out, (1, 1))
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+
+        return feat, out
+
+
+    def forward(self, x, is_feat=False, preact=False,alllayer=False):
+        if alllayer:
+            return self.forward_feat(x,preact=preact)
 
         out = self.conv1(x)
         f0 = out
@@ -201,13 +235,23 @@ class MobileNetV2PCA(MobileNetV2):
                 feature_dim,
                 width_mult=1.,
                 remove_avg=False,
-                num_channels = [32,16,24,32,64,96,160,320,1280]):
+                num_channels = []):
         super(MobileNetV2PCA, self).__init__(T,feature_dim,width_mult,remove_avg)
+        stride_ = 1 if feature_dim in [10,100] else 2 ## cifar input size is 32,using stride 2 will perform bad
+        num_channels_ = []
+        num_channels_.append(num_channels[0])
+        for n in [1,2,3,4,3,3,1]:
+            num_channels_.append(num_channels[:n])
+            del num_channels[:n]
+        num_channels_.append(num_channels[-1])
+        num_channels = num_channels_
+        print(f'mobilenet num_channels:{num_channels}')
+        
         # setting of inverted residual blocks
         self.interverted_residual_setting = [
             # t, c, n, s
             [1, num_channels[1], 1, 1],
-            [T, num_channels[2], 2, 2],
+            [T, num_channels[2], 2, stride_],
             [T, num_channels[3], 3, 2],
             [T, num_channels[4], 4, 2],
             [T, num_channels[5], 3, 1],
@@ -217,32 +261,31 @@ class MobileNetV2PCA(MobileNetV2):
 
         # building first layer
         input_channel = int(num_channels[0])
-        self.conv1 = conv_bn(3, input_channel, 2)
+        self.conv1 = conv_bn(3, input_channel, stride_)
 
         # building inverted residual blocks
         self.blocks = nn.ModuleList([])
-        for t, c, n, s in self.interverted_residual_setting:
-            output_channel = int(c * width_mult)
+        for i,(t, c, n, s) in enumerate(self.interverted_residual_setting):
             layers = []
             strides = [s] + [1] * (n - 1)
-            for stride in strides:
+            for i,stride in enumerate(strides):
+                output_channel = int(c[i] * width_mult)
                 layers.append(
                     InvertedResidual(input_channel, output_channel, stride, t)
                 )
                 input_channel = output_channel
-            self.blocks.append(nn.Sequential(*layers))
+            self.blocks.append(Sequential_feat(*layers))
 
         self.last_channel = num_channels[8]
         self.conv2 = conv_1x1_bn(input_channel, self.last_channel)
 
         # building classifier
         self.classifier = nn.Sequential(
-            # nn.Dropout(0.5),
+            nn.Dropout(0.1),
             nn.Linear(self.last_channel, feature_dim),
         )
 
         self._initialize_weights()
-        print(T, width_mult)
 
 
 def mobilenetv2_T_w_pca(T, W, num_channels, feature_dim=100):

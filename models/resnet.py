@@ -10,7 +10,7 @@ https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
+from .util import Sequential_feat
 
 __all__ = ['resnet']
 
@@ -32,6 +32,12 @@ class BasicBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
+        if stride != 1 or inplanes != planes * self.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(inplanes, planes * self.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * self.expansion),
+            )
         self.downsample = downsample
         self.stride = stride
 
@@ -135,21 +141,14 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
-
         layers = list([])
-        layers.append(block(self.inplanes, planes, stride, downsample, is_last=(blocks == 1)))
+        layers.append(block(self.inplanes, planes, stride, is_last=(blocks == 1)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, is_last=(i == blocks-1)))
+            self.inplanes = planes * block.expansion
 
-        return nn.Sequential(*layers)
+        return Sequential_feat(*layers)
 
     def get_feat_modules(self):
         feat_m = nn.ModuleList([])
@@ -175,7 +174,35 @@ class ResNet(nn.Module):
 
         return [bn1, bn2, bn3]
 
-    def forward(self, x, is_feat=False, preact=False):
+    def forward_feat(self, x, preact=False):
+        feat = []
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)  # 32x32
+        feat.append(x)
+        
+        out = self.layer1(x,is_feat=True)
+        for idx,block in enumerate(self.layer1):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+        
+        out = self.layer2(out[-1][0],is_feat=True)
+        for idx,block in enumerate(self.layer2):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+        
+        out = self.layer3(out[-1][0],is_feat=True)
+        for idx,block in enumerate(self.layer3):
+            feat.append(out[idx][0] if block.is_last else out[idx])
+
+        x = self.avgpool(out[-1][0])
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+        return feat,x
+
+    def forward(self, x, is_feat=False, preact=False, alllayer=False):
+        if alllayer:
+            return self.forward_feat(x, preact=preact)
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)  # 32x32
@@ -200,6 +227,65 @@ class ResNet(nn.Module):
                 return [f0, f1, f2, f3, f4], x
         else:
             return x
+
+
+class ResNetPCA(ResNet):
+
+    def __init__(self, depth, num_channels=[], block_name='BasicBlock', num_classes=10):
+        super(ResNet, self).__init__()
+        
+        # Model type specifies number of layers for CIFAR-10 model
+        if block_name.lower() == 'basicblock':
+            assert (depth - 2) % 6 == 0, 'When use basicblock, depth should be 6n+2, e.g. 20, 32, 44, 56, 110, 1202'
+            n = (depth - 2) // 6
+            block = BasicBlock
+            num_filters = []
+            num_filters.append(num_channels.pop(0))
+            for i in range(3):
+                num_filters.append(num_channels[:n])
+                del num_channels[:n]
+            print(f'resnet num_channels:{num_filters}')
+        elif block_name.lower() == 'bottleneck':
+            assert (depth - 2) % 9 == 0, 'When use bottleneck, depth should be 9n+2, e.g. 20, 29, 47, 56, 110, 1199'
+            n = (depth - 2) // 9
+            block = Bottleneck
+        else:
+            raise ValueError('block_name shoule be Basicblock or Bottleneck')
+
+
+        self.inplanes = num_filters[0]
+        self.conv1 = nn.Conv2d(3, num_filters[0], kernel_size=3, padding=1,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(num_filters[0])
+        self.relu = nn.ReLU(inplace=True)
+        self.layer1 = self._make_layer(block, num_filters[1], n)
+        self.layer2 = self._make_layer(block, num_filters[2], n, stride=2)
+        self.layer3 = self._make_layer(block, num_filters[3], n, stride=2)
+        self.avgpool = nn.AvgPool2d(8)
+        self.fc = nn.Linear(num_filters[3][-1] * block.expansion, num_classes)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        layers = list([])
+        layers.append(block(self.inplanes, planes[0], stride, is_last=(blocks == 1)))
+        self.inplanes = planes[0] * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes[i], is_last=(i == blocks-1)))
+            self.inplanes = planes[i] * block.expansion
+
+        return Sequential_feat(*layers)
+
+
+
+def resnet56PCA(**kwargs):
+    return ResNetPCA(56, block_name='basicblock', **kwargs)
 
 
 def resnet8(**kwargs):
