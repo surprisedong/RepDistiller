@@ -139,6 +139,9 @@ class ResNet(nn.Module):
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         layers = list([])
@@ -270,6 +273,9 @@ class ResNetPCA(ResNet):
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
 
 
     def _make_layer(self, block, planes, blocks, stride=1):
@@ -282,10 +288,14 @@ class ResNetPCA(ResNet):
 
         return Sequential_feat(*layers)
 
-
+def resnet20PCA(**kwargs):
+    return ResNetPCA(20, block_name='basicblock', **kwargs)
 
 def resnet56PCA(**kwargs):
     return ResNetPCA(56, block_name='basicblock', **kwargs)
+
+def resnet110PCA(**kwargs):
+    return ResNetPCA(110, block_name='basicblock', **kwargs)
 
 
 def resnet8(**kwargs):
