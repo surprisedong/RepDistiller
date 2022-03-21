@@ -28,18 +28,18 @@ class PCALoss(nn.Module):
         elif self.loss_type=='pca_s':
             with torch.no_grad():
                 f_t = self.projection(f_t)
-            temp = PCALoss(channels_truncate=self.channels_truncate)
-            f_s =  temp.projection(f_s)
+            self.pca_s = PCALoss(channels_truncate=self.channels_truncate)
+            f_s =  self.pca_s.projection(f_s)
         elif self.loss_type=='mahalanobis_distance':
             with torch.no_grad():
                 f_t = self.projection(f_t,center=True)
                 f_t /= torch.sqrt(self.s).unsqueeze(-1).unsqueeze(-1)
-            temp = PCALoss(channels_truncate=self.channels_truncate)
-            f_s =  temp.projection(f_s,center=True)
-            f_s /= torch.sqrt(temp.s).unsqueeze(-1).unsqueeze(-1)
+            self.pca_s = PCALoss(channels_truncate=self.channels_truncate)
+            f_s =  self.pca_s.projection(f_s,center=True)
+            f_s /= torch.sqrt(self.pca_s.s).unsqueeze(-1).unsqueeze(-1)
         else:
             assert False, 'unknown loss type'
-        
+            
         assert f_t.shape == f_s.shape
         if self.crit_type=='mse':
             return self.crit(f_s,f_t)
@@ -91,7 +91,7 @@ class PCALoss(nn.Module):
         cov = torch.matmul(im, im.t()) / im.shape[1]
         # svd
         u, s, _ = torch.svd(cov)
-        u.detach_()
+        u.detach_() ## we do this cause svd backward is unstable
         s.detach_()
         if self.channels_truncate:
             u = u[:, :self.channels_truncate]

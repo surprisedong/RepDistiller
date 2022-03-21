@@ -235,7 +235,7 @@ def main_worker(gpu, ngpus_per_node, opt):
                                                                         num_workers=opt.num_workers,
                                                                         is_instance=True,
                                                                         distributed = opt.distributed)
-    if opt.dataset == 'cifar10':
+    elif opt.dataset == 'cifar10':
         if opt.distill in ['crd']:
             train_loader, val_loader, n_data = get_cifar10_dataloaders_sample(batch_size=opt.batch_size,
                                                                                num_workers=opt.num_workers,

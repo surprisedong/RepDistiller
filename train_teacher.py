@@ -219,7 +219,10 @@ def main_worker(gpu, ngpus_per_node, opt):
             opt.start_epoch = checkpoint['epoch']
             best_acc = checkpoint['accuracy'] if hasattr(checkpoint,'accuracy') else 0
             model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
+            try:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+            except:
+                print("warning: no optimizer find in resume model! ")
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(opt.resume, checkpoint['epoch']))
         else:
@@ -231,7 +234,7 @@ def main_worker(gpu, ngpus_per_node, opt):
     # dataloader
     if opt.dataset == 'cifar100':
         train_loader, val_loader, train_sampler = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,distributed=opt.distributed)
-    if opt.dataset == 'cifar10':
+    elif opt.dataset == 'cifar10':
         train_loader, val_loader, train_sampler = get_cifar10_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,distributed=opt.distributed)
     elif opt.dataset == 'imagenet':
         train_loader, val_loader, train_sampler = get_imagenet_dataloader(opt, datapath= opt.datapath, batch_size=opt.batch_size, num_workers=opt.num_workers)
