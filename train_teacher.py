@@ -218,7 +218,11 @@ def main_worker(gpu, ngpus_per_node, opt):
                 checkpoint = torch.load(opt.resume, map_location=loc)
             opt.start_epoch = checkpoint['epoch']
             best_acc = checkpoint['accuracy'] if hasattr(checkpoint,'accuracy') else 0
-            model.load_state_dict(checkpoint['model'])
+            try:
+                model.load_state_dict(checkpoint['model'])
+            except:
+                ## load distributed training model
+                model.load_state_dict({k.replace('module.',''):v for k,v in checkpoint['model'].items()})
             try:
                 optimizer.load_state_dict(checkpoint['optimizer'])
             except:
