@@ -71,7 +71,10 @@ def load_teacher(model_path, n_cls):
     model_t = get_teacher_name(model_path)
     model = model_dict[model_t](num_classes=n_cls)
     try:
-        model.load_state_dict(torch.load(model_path)['model'])
+        try:
+            model.load_state_dict(torch.load(model_path)['model'])
+        except:
+            model.load_state_dict(torch.load(model_path))##load official pretrained model
     except:
         ## load distributed training model
         model.load_state_dict({k.replace('module.',''):v for k,v in torch.load(model_path)['model'].items()})

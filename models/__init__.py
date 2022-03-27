@@ -2,6 +2,8 @@ from .mobilenetv2 import mobilenetv2_raw, mobilenetv2_raw_pca
 from .resnet import resnet8, resnet14, resnet20, resnet32, resnet44, resnet56, \
     resnet110, resnet8x4, resnet32x4,resnet56PCA,resnet110PCA,resnet20PCA
 from .resnetv2 import *
+from .resnetv2 import resnet50PCA
+from .resnetv2 import resnet34PCA
 from .wrn import wrn_16_1, wrn_16_2, wrn_40_1, wrn_40_2
 from .vgg import vgg19_bn, vgg16_bn, vgg13_bn, vgg11_bn, vgg8_bn,vgg16liner_bn,vgg16liner_bnPCA,vgg16_bnPCA
 from .mobilenetv2 import *
@@ -22,8 +24,8 @@ model_dict = {
     'resnet110': resnet110,
     'resnet8x4': resnet8x4,
     'resnet32x4': resnet32x4,
-    'ResNet50': ResNet50,
-    'ResNet34': ResNet34,
+    'ResNet50': resnet50,
+    'ResNet34': resnet34,
     'wrn_16_1': wrn_16_1,
     'wrn_16_2': wrn_16_2,
     'wrn_40_1': wrn_40_1,
@@ -40,7 +42,7 @@ model_dict = {
     'MobileNetV2PCA':mobilenetv2_raw_pca,
     'ShuffleV1': ShuffleV1,
     'ShuffleV2': ShuffleV2,
-    'ResNet50PCA':ResNet50PCA,
-    'ResNet34PCA':ResNet34PCA,
+    'ResNet50PCA':resnet50PCA,
+    'ResNet34PCA':resnet34PCA,
     'vitbase':vit_base
 }
