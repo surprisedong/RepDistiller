@@ -87,7 +87,7 @@ class MobileNetV2(nn.Module):
             [1, 16, 1, 1],
             [T, 24, 2, stride_],
             [T, 32, 3, 2],
-            [T, 64, 4, stride_],
+            [T, 64, 4, 2],
             [T, 96, 3, 1],
             [T, 160, 3, 2],
             [T, 320, 1, 1],
@@ -236,7 +236,8 @@ class MobileNetV2PCA(MobileNetV2):
                 width_mult=1.,
                 remove_avg=False,
                 num_channels = []):
-        super(MobileNetV2PCA, self).__init__(T,feature_dim,width_mult,remove_avg)
+        super(MobileNetV2, self).__init__()
+        self.remove_avg = remove_avg
         stride_ = 1 if feature_dim in [10,100] else 2 ## cifar input size is 32,using stride 2 will perform bad
         num_channels_ = []
         num_channels_.append(num_channels[0])
@@ -253,7 +254,7 @@ class MobileNetV2PCA(MobileNetV2):
             [1, num_channels[1], 1, 1],
             [T, num_channels[2], 2, stride_],
             [T, num_channels[3], 3, 2],
-            [T, num_channels[4], 4, stride_],
+            [T, num_channels[4], 4, 2],
             [T, num_channels[5], 3, 1],
             [T, num_channels[6], 3, 2],
             [T, num_channels[7], 1, 1],
