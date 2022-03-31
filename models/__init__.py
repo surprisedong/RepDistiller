@@ -1,4 +1,4 @@
-from .mobilenetv2 import mobilenetv2_raw, mobilenetv2_raw_pca
+from .mobilenetv2 import mobilenet_v2PCA
 from .resnet import resnet8, resnet14, resnet20, resnet32, resnet44, resnet56, \
     resnet110, resnet8x4, resnet32x4,resnet56PCA,resnet110PCA,resnet20PCA
 from .resnetv2 import *
@@ -38,8 +38,8 @@ model_dict = {
     'vgg19': vgg19_bn,
     'vgg16linerbn':vgg16liner_bn,
     'vgg16linerbnPCA':vgg16liner_bnPCA,
-    'MobileNetV2': mobilenetv2_raw,
-    'MobileNetV2PCA':mobilenetv2_raw_pca,
+    'MobileNetV2': mobilenet_v2,
+    'MobileNetV2PCA':mobilenet_v2PCA,
     'ShuffleV1': ShuffleV1,
     'ShuffleV2': ShuffleV2,
     'ResNet50PCA':resnet50PCA,
