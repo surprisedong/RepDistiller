@@ -58,6 +58,8 @@ def parse_option():
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+    parser.add_argument('--smoothlabel', dest='smoothlabel', action='store_true',help='use smooth label for better performance')
+    parser.add_argument('--CosineAnnealingLR', dest='CosineAnnealingLR', action='store_true',help='use CosineAnnealingLR in learning rate')
 
     # dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet','cifar10'], help='dataset')
@@ -398,6 +400,8 @@ def main_worker(gpu, ngpus_per_node, opt):
                           lr=opt.learning_rate,
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
+    if opt.CosineAnnealingLR:
+        opt.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=5)
 
     cudnn.benchmark = True
 
@@ -409,7 +413,8 @@ def main_worker(gpu, ngpus_per_node, opt):
     for epoch in range(1, opt.epochs + 1):
         if opt.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(epoch, opt, optimizer)
+        if not opt.CosineAnnealingLR:
+            adjust_learning_rate(epoch, opt, optimizer)
         print("==> training...")
 
         time1 = time.time()

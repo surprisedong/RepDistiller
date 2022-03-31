@@ -44,6 +44,7 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--CosineAnnealingLR', dest='CosineAnnealingLR', action='store_true',help='use CosineAnnealingLR in learning rate')
     parser.add_argument('--clip_grad', dest='clip_grad', action='store_true',help='use clip_grad when training backward')
+    parser.add_argument('--smoothlabel', dest='smoothlabel', action='store_true',help='use smooth label for better performance')
 
     # dataset
     parser.add_argument('--model', type=str, default='resnet110',
@@ -201,10 +202,7 @@ def main_worker(gpu, ngpus_per_node, opt):
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
     if opt.CosineAnnealingLR:
-        warm_epoch = 10
-        lamda1 = lambda cur_epoch: cur_epoch / warm_epoch
-        opt.scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer,lr_lambda=lamda1)
-        opt.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=5)
+        opt.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=5)
 
     # optionally resume from a checkpoint
     if opt.resume:
@@ -264,11 +262,6 @@ def main_worker(gpu, ngpus_per_node, opt):
 
         time1 = time.time()
         train_acc, train_loss = train(epoch, train_loader, model, criterion, optimizer, opt)
-        if opt.CosineAnnealingLR:
-            if epoch <= warm_epoch:
-                opt.scheduler1.step()
-            else:
-                opt.scheduler2.step()
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 

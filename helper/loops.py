@@ -4,7 +4,7 @@ import sys
 import time
 import torch
 import pdb
-from .util import AverageMeter, accuracy
+from .util import AverageMeter, accuracy, smooth_one_hot
 import math
 
 def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
@@ -20,18 +20,22 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
     end = time.time()
     for idx, (input, target) in enumerate(train_loader):
         data_time.update(time.time() - end)
+        target_raw = target
+        if opt.smoothlabel:
+            target = smooth_one_hot(target,opt.n_cls,0.1)
 
         input = input.float()
         if opt.gpu is not None:
             input = input.cuda(opt.gpu, non_blocking=True)
         if torch.cuda.is_available():
             target = target.cuda(opt.gpu, non_blocking=True)
+            target_raw = target_raw.cuda(opt.gpu, non_blocking=True)
 
         # ===================forward=====================
         output = model(input)
         loss = criterion(output, target)
 
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        acc1, acc5 = accuracy(output, target_raw, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
         top1.update(acc1[0], input.size(0))
         top5.update(acc5[0], input.size(0))
@@ -47,12 +51,16 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
         batch_time.update(time.time() - end)
         end = time.time()
 
+        lr = optimizer.param_groups[-1]['lr']
+        if opt.CosineAnnealingLR:
+            opt.scheduler.step(epoch + idx / len(train_loader))
         # tensorboard logger
         pass
 
         # print info
         if idx % opt.print_freq == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
+                  f'lr: {lr:.3f}\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
@@ -109,12 +117,16 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
         else:
             input, target, index = data
         data_time.update(time.time() - end)
+        target_raw = target
+        if opt.smoothlabel:
+            target = smooth_one_hot(target, opt.n_cls, 0.1)
 
         input = input.float()
         if opt.gpu is not None:
             input = input.cuda(opt.gpu, non_blocking=True)
         if torch.cuda.is_available():
             target = target.cuda(opt.gpu, non_blocking=True)
+            target_raw = target_raw.cuda(opt.gpu, non_blocking=True)
             index = index.cuda(opt.gpu, non_blocking=True)
             if opt.distill in ['crd']:
                 contrast_idx = contrast_idx.cuda(opt.gpu, non_blocking=True)
@@ -203,7 +215,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
 
         loss = opt.gamma * loss_cls + opt.alpha * loss_div + opt.beta * loss_kd
 
-        acc1, acc5 = accuracy(logit_s, target, topk=(1, 5))
+        acc1, acc5 = accuracy(logit_s, target_raw, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
         losses_cls.update(loss_cls.item(), input.size(0))
         losses_div.update(loss_div.item(), input.size(0))
@@ -213,16 +225,21 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
 
         # ===================backward=====================
         optimizer.zero_grad()
-        loss.backward(retain_graph=True)
+        loss.backward()
         optimizer.step()
 
         # ===================meters=====================
         batch_time.update(time.time() - end)
         end = time.time()
 
+        lr = optimizer.param_groups[-1]['lr']
+        if opt.CosineAnnealingLR:
+            opt.scheduler.step(epoch + idx / len(train_loader))
+
         # print info
         if idx % opt.print_freq == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
+                  f'lr: {lr:.3f}\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
