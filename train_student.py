@@ -72,6 +72,8 @@ def parse_option():
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19', 'ResNet50','ResNet50PCA','ResNet34PCA','vgg16linerbnPCA','vgg16PCA',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2','MobileNetV2PCA'])
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
+    parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+    parser.add_argument('--start-epoch', default=0, type=int, metavar='N', help='manual epoch number (useful on restarts)')
 
     # distillation
     parser.add_argument('--distill', type=str, default='kd', choices=['kd', 'hint', 'attention', 'similarity',
@@ -103,6 +105,7 @@ def parse_option():
     parser.add_argument('--eigenVar', default=0.99, type=float, help='eigenVar ratio, i.e. trancate threshold in PCA distill')
     parser.add_argument('--pcalayer', type=str, default='', help='index of layer to use pca, can be a list')
     parser.add_argument('--alllayer', action='store_true',help='output all mid feature , only use in PCA distillation')
+    parser.add_argument('--channel_list', type=str, default='', help='channel list for student model')
 
     
     ### distributed training
@@ -146,6 +149,12 @@ def parse_option():
     opt.pcalayer = list([])
     for it in iterations:
         opt.pcalayer.append(int(it))
+    
+    if opt.channel_list:
+        iterations = opt.channel_list.split(',')
+        opt.channel_list = list([])
+        for it in iterations:
+            opt.channel_list.append(int(it))
 
     opt.model_t = get_teacher_name(opt.path_t)
 
@@ -258,6 +267,34 @@ def main_worker(gpu, ngpus_per_node, opt):
     model_t = load_teacher(opt.path_t, opt.n_cls)
     model_s = model_dict[opt.model_t+'PCA'](num_channels=opt.channel_list, num_classes=opt.n_cls) \
         if opt.distill == 'PCA' else model_dict[opt.model_s](num_classes=opt.n_cls)
+    
+        # optionally resume from a checkpoint
+    if opt.resume:
+        if os.path.isfile(opt.resume):
+            print("=> loading checkpoint '{}'".format(opt.resume))
+            if opt.gpu is None:
+                checkpoint = torch.load(opt.resume)
+            else:
+                # Map model to be loaded to specified single gpu.
+                loc = 'cuda:{}'.format(opt.gpu)
+                checkpoint = torch.load(opt.resume, map_location=loc)
+            opt.start_epoch = checkpoint['epoch']
+            best_acc = checkpoint['accuracy'] if hasattr(checkpoint,'accuracy') else 0
+            try:
+                model_s.load_state_dict(checkpoint['model'])
+            except:
+                ## load distributed training model
+                model_s.load_state_dict({k.replace('module.',''):v for k,v in checkpoint['model'].items()})
+            try:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+            except:
+                print("warning: no optimizer find in resume model! ")
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(opt.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(opt.resume))
+            exit(1)
+
     data = torch.randn(2, 3, 32, 32) if opt.dataset in ['cifar100','cifar10'] else torch.randn(2, 3, 224, 224)
 
     model_t.eval()
@@ -410,7 +447,7 @@ def main_worker(gpu, ngpus_per_node, opt):
     print('teacher accuracy: ', teacher_acc)
 
     # routine
-    for epoch in range(1, opt.epochs + 1):
+    for epoch in range(opt.start_epoch + 1, opt.epochs + 1):
         if opt.distributed:
             train_sampler.set_epoch(epoch)
         if not opt.CosineAnnealingLR:

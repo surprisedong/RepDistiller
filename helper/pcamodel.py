@@ -31,8 +31,9 @@ def build_model_s(opt):
             else:
                 assert False, f'{opt.model_t} is unsupported model right now'
     
-    for feat in feat_t:
-        criterion = PCALoss(eigenVar=opt.eigenVar,crit_type=opt.crit_type,loss_type=opt.loss_type)
+    for i,feat in enumerate(feat_t):
+        criterion = PCALoss(eigenVar=opt.eigenVar,crit_type=opt.crit_type,loss_type=opt.loss_type,\
+            channels_truncate=opt.channel_list[i] if opt.channel_list else None )
         featProj = criterion.projection(feat)
         channeltruncate = featProj.shape[1]
         channel_list.append(channeltruncate)
