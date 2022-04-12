@@ -3,6 +3,9 @@ from __future__ import print_function
 import torch
 import numpy as np
 from models import model_dict
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
 
 def adjust_learning_rate_new(epoch, optimizer, LUT):
     """
@@ -95,6 +98,39 @@ def smooth_one_hot(true_labels: torch.Tensor, classes: int, smoothing=0.0):
         true_dist.fill_(smoothing / (classes - 1))
         true_dist.scatter_(1, true_labels.unsqueeze(1), confidence) 
     return true_dist
+
+
+
+class Focal_Loss(nn.Module):
+    def __init__(self,weight=None,gamma=2):
+        '''weight: 1D tensor, weight for loss of each class, used when sample is not balanced
+           gamma : scale to learn difficult samples
+        '''
+        super(Focal_Loss,self).__init__()
+        self.gamma = gamma
+        self.weight = 1 if not weight else weight
+    def forward(self,preds,labels):
+        # ce = torch.nn.functional.cross_entropy(preds, labels, reduction='none')
+        # y_pred = torch.exp(-ce)
+        # floss=torch.pow((1-y_pred),self.gamma)*ce
+        # floss=torch.mul(floss,self.weight)
+        eps=1e-7
+        preds = torch.softmax(preds,dim=-1)
+        y_pred = preds.view((preds.size()[0],preds.size()[1])) #B X C
+
+        try:
+            target=labels.view(y_pred.size())
+        except: 
+            target = torch.zeros_like(y_pred)
+            target.scatter_(1, labels.unsqueeze(1), 1)
+
+        ce=-torch.log(y_pred+eps)*target
+        floss=torch.pow((1-y_pred),self.gamma)*ce
+        floss=torch.mul(floss,self.weight)
+        floss=torch.sum(floss,dim=1)
+
+        return torch.mean(floss)
+
 
 if __name__ == '__main__':
 

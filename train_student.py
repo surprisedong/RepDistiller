@@ -24,7 +24,7 @@ from models.util import Connector, Translator, Paraphraser
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
 from dataset.cifar10 import get_cifar10_dataloaders, get_cifar10_dataloaders_sample
 from dataset.imagenet import get_imagenet_dataloader
-from helper.util import adjust_learning_rate,get_teacher_name,load_teacher
+from helper.util import adjust_learning_rate,get_teacher_name,load_teacher,Focal_Loss
 
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss, PCALoss
@@ -60,6 +60,7 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--smoothlabel', dest='smoothlabel', action='store_true',help='use smooth label for better performance')
     parser.add_argument('--CosineAnnealingLR', dest='CosineAnnealingLR', action='store_true',help='use CosineAnnealingLR in learning rate')
+    parser.add_argument('--focalloss', dest='focalloss', action='store_true',help='use focal loss for better performance')
 
     # dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100','imagenet','cifar10'], help='dataset')
@@ -307,7 +308,7 @@ def main_worker(gpu, ngpus_per_node, opt):
     trainable_list = nn.ModuleList([])
     trainable_list.append(model_s)
 
-    criterion_cls = nn.CrossEntropyLoss()
+    criterion_cls = Focal_Loss() if opt.focalloss else nn.CrossEntropyLoss()
     criterion_div = DistillKL(opt.kd_T)
     if opt.distill == 'kd':
         criterion_kd = DistillKL(opt.kd_T)
