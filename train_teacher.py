@@ -202,7 +202,7 @@ def main_worker(gpu, ngpus_per_node, opt):
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
     if opt.CosineAnnealingLR:
-        opt.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=5)
+        opt.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=opt.epochs)
 
     # optionally resume from a checkpoint
     if opt.resume:
