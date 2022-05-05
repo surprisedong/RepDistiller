@@ -170,7 +170,7 @@ class MobileNetV2(nn.Module):
                 [1, 16, 1, 1],
                 [6, 24, 2, stride_],
                 [6, 32, 3, 2],
-                [6, 64, 4, 2],
+                [6, 64, 4, stride_],
                 [6, 96, 3, 1],
                 [6, 160, 3, 2],
                 [6, 320, 1, 1],
@@ -294,7 +294,7 @@ class MobileNetV2PCA(MobileNetV2):
                 [1, num_channels[1], 1, 1],
                 [6, num_channels[2], 2, stride_],
                 [6, num_channels[3], 3, 2],
-                [6, num_channels[4], 4, 2],
+                [6, num_channels[4], 4, stride_],
                 [6, num_channels[5], 3, 1],
                 [6, num_channels[6], 3, 2],
                 [6, num_channels[7], 1, 1],
@@ -325,7 +325,7 @@ class MobileNetV2PCA(MobileNetV2):
 
         # building classifier
         self.classifier = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(0.05),
             nn.Linear(self.last_channel, num_classes),
         )
 
